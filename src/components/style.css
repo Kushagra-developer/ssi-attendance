@@ -259,7 +259,7 @@ body {
     text-align: center;
 }
 
-/* Action Buttons Group (Save, Delete) */
+/* Action Buttons Group (Save, Delete, Download) */
 .action-buttons-group {
     width: 100%; /* Full width on small screens */
     margin-top: 0; /* Reset margin-top, gap handles spacing now */
@@ -279,7 +279,8 @@ body {
 
 
 .save-button,
-.delete-button { /* Removed .download-button */
+.delete-button,
+.download-button {
     flex: 1; /* Allow button to grow equally */
     display: flex;
     align-items: center;
@@ -311,6 +312,26 @@ body {
     margin-right: 0.5rem; /* mr-2 */
 }
 
+.download-button {
+    background-color: #2563eb; /* A nice blue for download */
+}
+.download-button:hover {
+    background-color: #1d4ed8;
+}
+.download-button:focus {
+    box-shadow: 0 0 0 2px #fff, 0 0 0 4px #2563eb;
+}
+.download-button:disabled {
+    background-color: #9ca3af;
+    cursor: not-allowed;
+}
+.download-button svg {
+    width: 1.25rem;
+    height: 1.25rem;
+    margin-right: 0.5rem;
+}
+
+
 .delete-button {
     background-color: #ef4444; /* bg-red-500 */
 }
@@ -324,8 +345,6 @@ body {
     background-color: #9ca3af; /* disabled:bg-gray-400 */
     cursor: not-allowed;
 }
-
-/* Removed .download-button specific styles */
 
 
 /* Attendance Table Styles */
