@@ -32,14 +32,12 @@ const calculateOvertime = (inTimeStr, outTimeStr, dateStr) => {
     const outMinutes = timeToMinutes(outTimeStr);
 
     if (isNaN(inMinutes) || isNaN(outMinutes)) {
-        return 0; // Cannot calculate if times are invalid or missing
+        return 0; // Cannot calculate if times are invalid or missing, including Sundays for OT if times are present
     }
 
     let otHours = 0;
 
-    // Now, automatic OT will be calculated for all days, including Sunday, based on in/out times.
-    // Sundays are now considered working days for automatic OT calculation.
-
+    // Automatic OT is calculated for all days now (including Sunday if times are present)
     // Calculate early entry OT (time BEFORE 9:00 AM)
     if (inMinutes < STANDARD_START_MINUTES) {
         otHours += (STANDARD_START_MINUTES - inMinutes) / 60;
@@ -482,19 +480,23 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
         data.forEach(d => {
             // Use 'T00:00:00Z' to parse the date as UTC and avoid local timezone effects on getUTCDay()
             const day = new Date(d.date + 'T00:00:00Z').getUTCDay();
+            const isSunday = day === 0; // Check if it's Sunday
 
-            const hasValidInTime = d.inTime && d.inTime.trim() !== '' && d.inTime.toUpperCase() !== 'H';
-            const hasValidOutTime = d.outTime && d.outTime.trim() !== '' && d.outTime.toUpperCase() !== 'H';
+            const hasValidTimeEntry = d.inTime && d.inTime.trim() !== '' && d.inTime.toUpperCase() !== 'H';
             const isHolidayMarked = d.inTime.toUpperCase() === 'H' || d.outTime.toUpperCase() === 'H';
 
-            // If there's any valid time entry (not 'H'), it's a present day.
-            // If it's not marked 'H' and has no time entry, it's an absent day.
-            // This now applies to ALL days, including Sundays.
-            if (hasValidInTime || hasValidOutTime) {
+            // --- MODIFICATION START ---
+            // If it's a Sunday, always count as present, unless explicitly marked as 'H' (holiday).
+            // For other days, count as present if there's a valid time entry.
+            // Count as absent if no valid time entry and not marked 'H' and not a Sunday.
+            if (isSunday && !isHolidayMarked) { // Sunday is always present, unless 'H'
                 presentDays++;
-            } else if (!isHolidayMarked) {
+            } else if (!isSunday && hasValidTimeEntry) { // Non-Sunday, present if time entered
+                presentDays++;
+            } else if (!isSunday && !hasValidTimeEntry && !isHolidayMarked) { // Non-Sunday, absent if no time and not 'H'
                 absentDays++;
             }
+            // --- MODIFICATION END ---
 
             if (typeof d.overTime === 'number' && d.overTime > 0) {
                 totalOvertimeHours += d.overTime;
@@ -503,13 +505,11 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
 
         const otAmount = totalOvertimeHours * dynamicOtRate;
         
-        // --- MODIFICATION START ---
         // Calculate deduction for absent days
         const dailyRateForDeduction = baseSalary > 0 && actualDaysInMonth > 0 ? baseSalary / actualDaysInMonth : 0;
-        const absentDeduction = absentDays * dailyRateForDeduction;
+        const absentDeduction = absentDays * dailyRateForDeduction; // Deduct only for actual absent days (non-Sundays without entries)
         
         const totalSalary = baseSalary + otAmount - absentDeduction;
-        // --- MODIFICATION END ---
 
         return {
             present: presentDays,
