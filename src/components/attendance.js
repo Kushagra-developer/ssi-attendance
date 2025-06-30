@@ -1,11 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save, Download } from 'lucide-react'; // Import Download icon
+// Removed all Firebase imports
+import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save } from 'lucide-react';
 
-// Import xlsx and file-saver
-import * as XLSX from 'xlsx';
-import { saveAs } from 'file-saver';
-
-// --- Helper function for time conversion and OT calculation (remains the same) ---
+// --- Helper function for time conversion and OT calculation ---
 const timeToMinutes = (timeStr) => {
     if (!timeStr || timeStr.trim() === '' || timeStr.toUpperCase() === 'H') return NaN;
     const parts = timeStr.split(':');
@@ -308,115 +305,6 @@ const AttendanceTracker = () => {
         alert(`Employee "${employeeToDelete.name}" and all associated data deleted successfully!`);
     };
 
-    // --- NEW: handleDownloadAllData function ---
-    const handleDownloadAllData = () => {
-        if (!employees.length || Object.keys(allAttendanceRecords).length === 0) {
-            alert("No data available to download.");
-            return;
-        }
-
-        const workbook = XLSX.utils.book_new();
-
-        employees.forEach(employee => {
-            const employeeId = employee.id;
-            const employeeName = employee.name;
-            const employeeMonthsData = allAttendanceRecords[employeeId];
-
-            if (employeeMonthsData) {
-                // Sort month keys (e.g., "2024-1", "2024-2"...)
-                const sortedMonthKeys = Object.keys(employeeMonthsData).sort((a, b) => {
-                    const [yearA, monthA] = a.split('-').map(Number);
-                    const [yearB, monthB] = b.split('-').map(Number);
-                    if (yearA !== yearB) return yearA - yearB;
-                    return monthA - monthB;
-                });
-
-                sortedMonthKeys.forEach(monthDocId => {
-                    const monthData = employeeMonthsData[monthDocId];
-                    const days = monthData.days || [];
-                    const baseSalaryForMonth = monthData.baseSalary || 0; // Get base salary for this specific month's record
-
-                    // Prepare data for the sheet
-                    const sheetData = [
-                        // Headers
-                        ['Date', 'In Time', 'Out Time', 'Over Time (Hrs)', 'Remarks'],
-                        // Add rows for attendance data
-                        ...days.map(d => [
-                            new Date(d.date + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }),
-                            d.inTime,
-                            d.outTime,
-                            typeof d.overTime === 'number' ? d.overTime.toFixed(2) : d.overTime, // Ensure two decimal places
-                            d.remarks
-                        ])
-                    ];
-
-                    // Calculate summary for the sheet
-                    let present = 0;
-                    let absent = 0;
-                    let totalOT = 0;
-                    const totalDaysInMonth = days.length;
-                    const Sundays = days.filter(d => new Date(d.date).getDay() === 0).length;
-                    const actualWorkingDays = totalDaysInMonth - Sundays;
-
-                    days.forEach(d => {
-                        const day = new Date(d.date).getDay();
-                        const isWorkingDay = day !== 0;
-
-                        if (d.inTime && d.inTime.trim() !== '' && d.inTime.toUpperCase() !== 'H' && d.outTime && d.outTime.trim() !== '' && d.outTime.toUpperCase() !== 'H') {
-                            present++;
-                        } else if (isWorkingDay && (!d.inTime || d.inTime.trim() === '' || d.inTime.toUpperCase() === 'H')) {
-                            absent++;
-                        }
-
-                        if (typeof d.overTime === 'number' && d.overTime > 0) {
-                            totalOT += d.overTime;
-                        }
-                    });
-
-                    absent = Math.min(absent, actualWorkingDays - present);
-                    present = Math.min(present, actualWorkingDays);
-
-                    const otAmount = totalOT * OT_RATE;
-                    const totalPayable = baseSalaryForMonth + otAmount;
-
-                    // Add summary rows
-                    sheetData.push([]); // Empty row for spacing
-                    sheetData.push(['Summary for this Month:']);
-                    sheetData.push(['Present Days:', present]);
-                    sheetData.push(['Absent Days:', absent]);
-                    sheetData.push(['Total Overtime (Hours):', totalOT.toFixed(2)]);
-                    sheetData.push(['Base Salary:', `₹${baseSalaryForMonth.toFixed(2)}`]);
-                    sheetData.push(['Overtime Amount:', `₹${otAmount.toFixed(2)}`]);
-                    sheetData.push(['Total Payable:', `₹${totalPayable.toFixed(2)}`]);
-
-
-                    const ws = XLSX.utils.aoa_to_sheet(sheetData);
-                    
-                    // Set column widths for better readability
-                    const wscols = [
-                        {wch: 12}, // Date
-                        {wch: 10}, // In Time
-                        {wch: 10}, // Out Time
-                        {wch: 15}, // Over Time (Hrs)
-                        {wch: 25}  // Remarks
-                    ];
-                    ws['!cols'] = wscols;
-
-                    // Create a valid sheet name: EmployeeName (YYYY-M)
-                    const [year, month] = monthDocId.split('-');
-                    const monthName = new Date(year, parseInt(month) - 1, 1).toLocaleString('default', { month: 'short' });
-                    const sheetName = `${employeeName.substring(0, 10)} (${monthName} ${year})`; // Trim name if too long
-
-                    // Add sheet to workbook
-                    XLSX.utils.book_append_sheet(workbook, ws, sheetName);
-                });
-            }
-        });
-
-        // Write the workbook and save the file
-        XLSX.writeFile(workbook, `Attendance_Report_${new Date().toLocaleDateString('en-GB')}.xlsx`);
-    };
-
     // --- Render UI ---
     return (
         <div className="app-container">
@@ -427,12 +315,11 @@ const AttendanceTracker = () => {
                 setSelectedEmployee={setSelectedEmployee}
                 currentDate={currentDate}
                 handleMonthChange={handleMonthChange}
-                handleSave={handleSave}
+                handleSave={handleSave} // Still keep Save button for user confirmation
                 newEmployeeName={newEmployeeName}
                 setNewEmployeeName={setNewEmployeeName}
                 handleAddEmployee={handleAddEmployee}
                 handleDeleteEmployee={handleDeleteEmployee}
-                handleDownloadAllData={handleDownloadAllData} {/* Pass the new function */}
             />
             {isLoading ? (
                 <div className="loading-table-data">
@@ -452,7 +339,7 @@ const AttendanceTracker = () => {
     );
 };
 
-// --- Sub-Components (Update Controls to include the new button) ---
+// --- Sub-Components ---
 const Header = () => (
     <header className="header-section">
         <h1 className="header-title">Employee Attendance Recorder</h1>
@@ -460,8 +347,7 @@ const Header = () => (
     </header>
 );
 
-// Updated Controls component to include handleDownloadAllData
-const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDate, handleMonthChange, handleSave, newEmployeeName, setNewEmployeeName, handleAddEmployee, handleDeleteEmployee, handleDownloadAllData }) => (
+const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDate, handleMonthChange, handleSave, newEmployeeName, setNewEmployeeName, handleAddEmployee, handleDeleteEmployee }) => (
     <div className="controls-section">
         <div className="employee-group">
             <label htmlFor="employee-select" className="label-icon"><User className="lucide-icon" /> Employee</label>
@@ -513,14 +399,6 @@ const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDat
                 Save Data
             </button>
             <button
-                onClick={handleDownloadAllData} // New download button
-                className="download-button" // Apply a new class for styling
-                disabled={!employees.length || Object.keys(allAttendanceRecords).length === 0}
-            >
-                <Download className="lucide-icon" />
-                Download All Data
-            </button>
-            <button
                 onClick={handleDeleteEmployee}
                 className="delete-button"
                 disabled={!selectedEmployee} 
@@ -531,7 +409,6 @@ const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDat
     </div>
 );
 
-// AttendanceTable, EditableCell, Summary, SummaryItem, Footer remain the same as before
 const AttendanceTable = ({ data, onDataChange }) => (
     <table className="attendance-table">
         <thead>
