@@ -332,7 +332,12 @@ const AttendanceTracker = () => {
                     <div className="table-wrapper">
                         <AttendanceTable data={attendanceData} onDataChange={handleDataChange} />
                     </div>
-                    <Summary data={attendanceData} baseSalary={baseSalary} setBaseSalary={handleBaseSalaryChange} />
+                    <Summary
+                        data={attendanceData}
+                        baseSalary={baseSalary}
+                        setBaseSalary={handleBaseSalaryChange}
+                        currentDate={currentDate} // Passed currentDate to Summary
+                    />
                 </div>
             )}
             <Footer />
@@ -456,23 +461,26 @@ const EditableCell = ({ value, onChange, type = 'text', placeholder = '' }) => (
     />
 );
 
-const Summary = ({ data, baseSalary, setBaseSalary }) => {
+const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
     const summaryStats = useMemo(() => {
         let presentDays = 0;
         let absentDays = 0;
         let totalOvertimeHours = 0;
 
         // --- Dynamic OT Rate Calculation ---
-        // Assuming 22 working days in a month for calculation purposes
-        const WORKING_DAYS_PER_MONTH = 22;
-        // Changed to 8 hours for 8hrs duty
-        const STANDARD_HOURS_PER_DAY = 8;
+        // Get the number of days in the current month based on currentDate
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth(); // 0-indexed
+        // This correctly gets the number of days in the specific month
+        const actualDaysInMonth = new Date(year, month + 1, 0).getDate();
+
+        const STANDARD_HOURS_PER_DAY = 8; // For 8 hours duty as per your requirement
 
         let dynamicOtRate = 0;
-        if (baseSalary > 0) {
-            const dailyRate = baseSalary / WORKING_DAYS_PER_MONTH;
+        if (baseSalary > 0 && actualDaysInMonth > 0) { // Ensure actualDaysInMonth is not zero to prevent division by zero
+            const dailyRate = baseSalary / actualDaysInMonth; // Divide by actual days in the current month
             const hourlyRate = dailyRate / STANDARD_HOURS_PER_DAY;
-            dynamicOtRate = parseFloat(hourlyRate.toFixed(2)); // Use hourly rate as OT rate, rounded
+            dynamicOtRate = parseFloat(hourlyRate.toFixed(2));
         }
         // --- End Dynamic OT Rate Calculation ---
 
@@ -511,7 +519,7 @@ const Summary = ({ data, baseSalary, setBaseSalary }) => {
             totalSalary: totalSalary,
             currentOtRate: dynamicOtRate // Expose the calculated rate for display
         };
-    }, [data, baseSalary]); // baseSalary is now a dependency for useMemo
+    }, [data, baseSalary, currentDate]); // currentDate is now a dependency for useMemo
 
     return (
         <div className="summary-section">
