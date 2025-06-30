@@ -21,7 +21,7 @@ const calculateOvertime = (inTimeStr, outTimeStr, dateStr) => {
     // or specifically at the start of the day to avoid timezone shifts causing issues,
     // especially with `getDay()`. Appending 'T00:00:00Z' is a good practice.
     const dayDate = new Date(dateStr + 'T00:00:00Z');
-    const isSunday = dayDate.getUTCDay() === 0; // Sunday is 0 for getUTCDay()
+    const isSunday = dayDate.getUTCDay() === 0; // Sunday is 0 for getUTCDay() - KEPT FOR HIGHLIGHTING LOGIC IN TABLE
 
     // If 'H' is explicitly entered, it's a holiday/non-working for automatic OT, so return 0
     if (inTimeStr.toUpperCase() === 'H' || outTimeStr.toUpperCase() === 'H') {
@@ -37,22 +37,17 @@ const calculateOvertime = (inTimeStr, outTimeStr, dateStr) => {
 
     let otHours = 0;
 
-    // Only calculate automatic OT for working days (not Sundays)
-    if (!isSunday) {
-        // Calculate early entry OT (time BEFORE 9:00 AM)
-        if (inMinutes < STANDARD_START_MINUTES) {
-            otHours += (STANDARD_START_MINUTES - inMinutes) / 60;
-        }
+    // Now, automatic OT will be calculated for all days, including Sunday, based on in/out times.
+    // Sundays are now considered working days for automatic OT calculation.
 
-        // Calculate late exit OT (time AFTER 5:30 PM)
-        if (outMinutes > STANDARD_END_MINUTES) {
-            otHours += (outMinutes - STANDARD_END_MINUTES) / 60;
-        }
-    } else {
-        // As per the requirement "Sunday is a non-working day for automatic OT",
-        // we'll return 0 for automatic calculation based on in/out times on Sunday.
-        // Manual OT entered by the user will still be handled by the editable cell.
-        return 0;
+    // Calculate early entry OT (time BEFORE 9:00 AM)
+    if (inMinutes < STANDARD_START_MINUTES) {
+        otHours += (STANDARD_START_MINUTES - inMinutes) / 60;
+    }
+
+    // Calculate late exit OT (time AFTER 5:30 PM)
+    if (outMinutes > STANDARD_END_MINUTES) {
+        otHours += (outMinutes - STANDARD_END_MINUTES) / 60;
     }
 
     return parseFloat(otHours.toFixed(2)); // Round to 2 decimal places
@@ -487,19 +482,18 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
         data.forEach(d => {
             // Use 'T00:00:00Z' to parse the date as UTC and avoid local timezone effects on getUTCDay()
             const day = new Date(d.date + 'T00:00:00Z').getUTCDay();
-            const isWorkingDay = day !== 0; // Assuming Sunday is a non-working day
 
             const hasValidInTime = d.inTime && d.inTime.trim() !== '' && d.inTime.toUpperCase() !== 'H';
             const hasValidOutTime = d.outTime && d.outTime.trim() !== '' && d.outTime.toUpperCase() !== 'H';
             const isHolidayMarked = d.inTime.toUpperCase() === 'H' || d.outTime.toUpperCase() === 'H';
 
-
-            if (isWorkingDay) {
-                if (hasValidInTime || hasValidOutTime) { // If there's any valid time entry
-                    presentDays++;
-                } else if (!isHolidayMarked) { // If it's a working day, and no time, and not marked 'H'
-                    absentDays++;
-                }
+            // If there's any valid time entry (not 'H'), it's a present day.
+            // If it's not marked 'H' and has no time entry, it's an absent day.
+            // This now applies to ALL days, including Sundays.
+            if (hasValidInTime || hasValidOutTime) {
+                presentDays++;
+            } else if (!isHolidayMarked) {
+                absentDays++;
             }
 
             if (typeof d.overTime === 'number' && d.overTime > 0) {
@@ -507,9 +501,15 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
             }
         });
 
-        // Use dynamicOtRate here
         const otAmount = totalOvertimeHours * dynamicOtRate;
-        const totalSalary = baseSalary + otAmount;
+        
+        // --- MODIFICATION START ---
+        // Calculate deduction for absent days
+        const dailyRateForDeduction = baseSalary > 0 && actualDaysInMonth > 0 ? baseSalary / actualDaysInMonth : 0;
+        const absentDeduction = absentDays * dailyRateForDeduction;
+        
+        const totalSalary = baseSalary + otAmount - absentDeduction;
+        // --- MODIFICATION END ---
 
         return {
             present: presentDays,
@@ -517,7 +517,8 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
             totalOT: totalOvertimeHours,
             otAmount: otAmount,
             totalSalary: totalSalary,
-            currentOtRate: dynamicOtRate // Expose the calculated rate for display
+            currentOtRate: dynamicOtRate, // Expose the calculated rate for display
+            absentDeduction: absentDeduction // Expose absent deduction for display
         };
     }, [data, baseSalary, currentDate]); // currentDate is now a dependency for useMemo
 
@@ -539,6 +540,8 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
             <SummaryItem label="Hourly OT Rate" value={`₹${summaryStats.currentOtRate.toFixed(2)}`} />
             <SummaryItem label="Total OT (Hours)" value={summaryStats.totalOT.toFixed(2)} />
             <SummaryItem label="Total OT (Amount)" value={`₹${summaryStats.otAmount.toFixed(2)}`} />
+            {/* Display Absent Deduction */}
+            <SummaryItem label="Absent Deduction" value={`- ₹${summaryStats.absentDeduction.toFixed(2)}`} />
             <div className="total-payable-container">
                 <SummaryItem label="Total Payable" value={`₹${summaryStats.totalSalary.toFixed(2)}`} isTotal={true} />
             </div>
