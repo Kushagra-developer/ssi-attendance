@@ -41,6 +41,7 @@ const calculateOvertime = (inTimeStr, outTimeStr, dateStr) => {
     }
 
     // Calculate late exit OT (time after 5:30 PM)
+    // THIS IS THE LINE THAT HANDLES OT AFTER 5:30 PM
     if (outMinutes > STANDARD_END_MINUTES) {
         otHours += (outMinutes - STANDARD_END_MINUTES) / 60;
     }
