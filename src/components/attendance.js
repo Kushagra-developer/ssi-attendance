@@ -465,8 +465,8 @@ const Summary = ({ data, baseSalary, setBaseSalary }) => {
         // --- Dynamic OT Rate Calculation ---
         // Assuming 22 working days in a month for calculation purposes
         const WORKING_DAYS_PER_MONTH = 22;
-        // 9:00 AM to 5:30 PM is 8.5 hours (8 hours 30 minutes)
-        const STANDARD_HOURS_PER_DAY = 8.5;
+        // Changed to 8 hours for 8hrs duty
+        const STANDARD_HOURS_PER_DAY = 8;
 
         let dynamicOtRate = 0;
         if (baseSalary > 0) {
