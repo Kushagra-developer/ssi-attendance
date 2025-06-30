@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-// Removed all Firebase imports
-import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save } from 'lucide-react'; // Removed Download icon
+import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save, Download } from 'lucide-react'; // Import Download icon
 
-// --- Helper function for time conversion and OT calculation ---
+// Import xlsx and file-saver
+import * as XLSX from 'xlsx';
+import { saveAs } from 'file-saver';
+
+// --- Helper function for time conversion and OT calculation (remains the same) ---
 const timeToMinutes = (timeStr) => {
     if (!timeStr || timeStr.trim() === '' || timeStr.toUpperCase() === 'H') return NaN;
     const parts = timeStr.split(':');
@@ -19,7 +22,7 @@ const STANDARD_END_MINUTES = timeToMinutes('17:30'); // 5:30 PM
 
 const calculateOvertime = (inTimeStr, outTimeStr, dateStr) => {
     const dayDate = new Date(dateStr);
-    const isSunday = dayDate.getDay() === 0; // Sunday is 0
+    const isSunday = dayDate.getDay() === 0; // Sunday is 0 (assuming Sunday is a non-working day for automatic OT)
 
     // If it's a Sunday or explicitly marked as 'H', no automatic OT
     if (isSunday || inTimeStr.toUpperCase() === 'H' || outTimeStr.toUpperCase() === 'H') {
@@ -35,13 +38,12 @@ const calculateOvertime = (inTimeStr, outTimeStr, dateStr) => {
 
     let otHours = 0;
 
-    // Calculate early entry OT (time before 9:00 AM)
+    // Calculate early entry OT (time BEFORE 9:00 AM)
     if (inMinutes < STANDARD_START_MINUTES) {
         otHours += (STANDARD_START_MINUTES - inMinutes) / 60;
     }
 
-    // Calculate late exit OT (time after 5:30 PM)
-    // THIS IS THE LINE THAT HANDLES OT AFTER 5:30 PM
+    // Calculate late exit OT (time AFTER 5:30 PM)
     if (outMinutes > STANDARD_END_MINUTES) {
         otHours += (outMinutes - STANDARD_END_MINUTES) / 60;
     }
@@ -49,10 +51,8 @@ const calculateOvertime = (inTimeStr, outTimeStr, dateStr) => {
     return parseFloat(otHours.toFixed(2)); // Round to 2 decimal places
 };
 
-// --- Main App Component (simplified as no Firebase setup) ---
+// --- Main App Component ---
 export default function App() {
-    // No Firebase related states or effects needed here anymore.
-    // The App component now directly renders AttendanceTracker.
     return (
         <div className="app-main-wrapper">
             <AttendanceTracker />
@@ -308,7 +308,114 @@ const AttendanceTracker = () => {
         alert(`Employee "${employeeToDelete.name}" and all associated data deleted successfully!`);
     };
 
-    // Removed handleDownloadExcel
+    // --- NEW: handleDownloadAllData function ---
+    const handleDownloadAllData = () => {
+        if (!employees.length || Object.keys(allAttendanceRecords).length === 0) {
+            alert("No data available to download.");
+            return;
+        }
+
+        const workbook = XLSX.utils.book_new();
+
+        employees.forEach(employee => {
+            const employeeId = employee.id;
+            const employeeName = employee.name;
+            const employeeMonthsData = allAttendanceRecords[employeeId];
+
+            if (employeeMonthsData) {
+                // Sort month keys (e.g., "2024-1", "2024-2"...)
+                const sortedMonthKeys = Object.keys(employeeMonthsData).sort((a, b) => {
+                    const [yearA, monthA] = a.split('-').map(Number);
+                    const [yearB, monthB] = b.split('-').map(Number);
+                    if (yearA !== yearB) return yearA - yearB;
+                    return monthA - monthB;
+                });
+
+                sortedMonthKeys.forEach(monthDocId => {
+                    const monthData = employeeMonthsData[monthDocId];
+                    const days = monthData.days || [];
+                    const baseSalaryForMonth = monthData.baseSalary || 0; // Get base salary for this specific month's record
+
+                    // Prepare data for the sheet
+                    const sheetData = [
+                        // Headers
+                        ['Date', 'In Time', 'Out Time', 'Over Time (Hrs)', 'Remarks'],
+                        // Add rows for attendance data
+                        ...days.map(d => [
+                            new Date(d.date + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+                            d.inTime,
+                            d.outTime,
+                            typeof d.overTime === 'number' ? d.overTime.toFixed(2) : d.overTime, // Ensure two decimal places
+                            d.remarks
+                        ])
+                    ];
+
+                    // Calculate summary for the sheet
+                    let present = 0;
+                    let absent = 0;
+                    let totalOT = 0;
+                    const totalDaysInMonth = days.length;
+                    const Sundays = days.filter(d => new Date(d.date).getDay() === 0).length;
+                    const actualWorkingDays = totalDaysInMonth - Sundays;
+
+                    days.forEach(d => {
+                        const day = new Date(d.date).getDay();
+                        const isWorkingDay = day !== 0;
+
+                        if (d.inTime && d.inTime.trim() !== '' && d.inTime.toUpperCase() !== 'H' && d.outTime && d.outTime.trim() !== '' && d.outTime.toUpperCase() !== 'H') {
+                            present++;
+                        } else if (isWorkingDay && (!d.inTime || d.inTime.trim() === '' || d.inTime.toUpperCase() === 'H')) {
+                            absent++;
+                        }
+
+                        if (typeof d.overTime === 'number' && d.overTime > 0) {
+                            totalOT += d.overTime;
+                        }
+                    });
+
+                    absent = Math.min(absent, actualWorkingDays - present);
+                    present = Math.min(present, actualWorkingDays);
+
+                    const otAmount = totalOT * OT_RATE;
+                    const totalPayable = baseSalaryForMonth + otAmount;
+
+                    // Add summary rows
+                    sheetData.push([]); // Empty row for spacing
+                    sheetData.push(['Summary for this Month:']);
+                    sheetData.push(['Present Days:', present]);
+                    sheetData.push(['Absent Days:', absent]);
+                    sheetData.push(['Total Overtime (Hours):', totalOT.toFixed(2)]);
+                    sheetData.push(['Base Salary:', `₹${baseSalaryForMonth.toFixed(2)}`]);
+                    sheetData.push(['Overtime Amount:', `₹${otAmount.toFixed(2)}`]);
+                    sheetData.push(['Total Payable:', `₹${totalPayable.toFixed(2)}`]);
+
+
+                    const ws = XLSX.utils.aoa_to_sheet(sheetData);
+                    
+                    // Set column widths for better readability
+                    const wscols = [
+                        {wch: 12}, // Date
+                        {wch: 10}, // In Time
+                        {wch: 10}, // Out Time
+                        {wch: 15}, // Over Time (Hrs)
+                        {wch: 25}  // Remarks
+                    ];
+                    ws['!cols'] = wscols;
+
+                    // Create a valid sheet name: EmployeeName (YYYY-M)
+                    const [year, month] = monthDocId.split('-');
+                    const monthName = new Date(year, parseInt(month) - 1, 1).toLocaleString('default', { month: 'short' });
+                    const sheetName = `${employeeName.substring(0, 10)} (${monthName} ${year})`; // Trim name if too long
+
+                    // Add sheet to workbook
+                    XLSX.utils.book_append_sheet(workbook, ws, sheetName);
+                });
+            }
+        });
+
+        // Write the workbook and save the file
+        XLSX.writeFile(workbook, `Attendance_Report_${new Date().toLocaleDateString('en-GB')}.xlsx`);
+    };
 
     // --- Render UI ---
     return (
@@ -320,12 +427,12 @@ const AttendanceTracker = () => {
                 setSelectedEmployee={setSelectedEmployee}
                 currentDate={currentDate}
                 handleMonthChange={handleMonthChange}
-                handleSave={handleSave} // Still keep Save button for user confirmation
+                handleSave={handleSave}
                 newEmployeeName={newEmployeeName}
                 setNewEmployeeName={setNewEmployeeName}
                 handleAddEmployee={handleAddEmployee}
                 handleDeleteEmployee={handleDeleteEmployee}
-                // Removed handleDownloadExcel prop
+                handleDownloadAllData={handleDownloadAllData} {/* Pass the new function */}
             />
             {isLoading ? (
                 <div className="loading-table-data">
@@ -340,16 +447,12 @@ const AttendanceTracker = () => {
                     <Summary data={attendanceData} baseSalary={baseSalary} otRate={OT_RATE} setBaseSalary={handleBaseSalaryChange} />
                 </div>
             )}
-            <Footer /> {/* No userId or appId needed for Footer with local storage */}
+            <Footer />
         </div>
     );
 };
 
-// --- Sub-Components ---
-// Header, AttendanceTable, EditableCell, Summary, SummaryItem remain largely the same.
-// Controls will have the download button removed.
-// Footer will no longer display userId/appId.
-
+// --- Sub-Components (Update Controls to include the new button) ---
 const Header = () => (
     <header className="header-section">
         <h1 className="header-title">Employee Attendance Recorder</h1>
@@ -357,7 +460,8 @@ const Header = () => (
     </header>
 );
 
-const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDate, handleMonthChange, handleSave, newEmployeeName, setNewEmployeeName, handleAddEmployee, handleDeleteEmployee }) => (
+// Updated Controls component to include handleDownloadAllData
+const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDate, handleMonthChange, handleSave, newEmployeeName, setNewEmployeeName, handleAddEmployee, handleDeleteEmployee, handleDownloadAllData }) => (
     <div className="controls-section">
         <div className="employee-group">
             <label htmlFor="employee-select" className="label-icon"><User className="lucide-icon" /> Employee</label>
@@ -368,7 +472,7 @@ const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDat
                 onChange={(e) => setSelectedEmployee(e.target.value)}
                 disabled={!employees.length}
             >
-                {employees.length === 0 && <option value="">No Employees</option>} {/* Changed text here */}
+                {employees.length === 0 && <option value="">No Employees</option>}
                 {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
             </select>
              <form onSubmit={handleAddEmployee} className="add-employee-form">
@@ -409,17 +513,25 @@ const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDat
                 Save Data
             </button>
             <button
+                onClick={handleDownloadAllData} // New download button
+                className="download-button" // Apply a new class for styling
+                disabled={!employees.length || Object.keys(allAttendanceRecords).length === 0}
+            >
+                <Download className="lucide-icon" />
+                Download All Data
+            </button>
+            <button
                 onClick={handleDeleteEmployee}
                 className="delete-button"
                 disabled={!selectedEmployee} 
             >
                 Delete Employee
             </button>
-            {/* Removed the Download All Data button */}
         </div>
     </div>
 );
 
+// AttendanceTable, EditableCell, Summary, SummaryItem, Footer remain the same as before
 const AttendanceTable = ({ data, onDataChange }) => (
     <table className="attendance-table">
         <thead>
@@ -524,8 +636,8 @@ const SummaryItem = ({ label, value, children, isTotal = false }) => (
     </div>
 );
 
-const Footer = () => ( // Removed props
+const Footer = () => (
     <footer className="app-footer">
-        <p>Data is stored locally in your browser.</p> {/* Updated message */}
+        <p>Data is stored locally in your browser.</p>
     </footer>
 );
