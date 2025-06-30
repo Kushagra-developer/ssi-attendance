@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-// Removed all Firebase imports
-import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save, Download } from 'lucide-react'; // Import Download icon
+import * as XLSX from 'xlsx'; // Import the xlsx library
+import { saveAs } from 'file-saver'; // Import saveAs from file-saver
 
 // --- Helper function for time conversion and OT calculation ---
 const timeToMinutes = (timeStr) => {
@@ -305,6 +306,119 @@ const AttendanceTracker = () => {
         alert(`Employee "${employeeToDelete.name}" and all associated data deleted successfully!`);
     };
 
+    // --- NEW: Handle Excel Export ---
+    const handleExportExcel = () => {
+        if (Object.keys(allAttendanceRecords).length === 0) {
+            alert("No data available to export.");
+            return;
+        }
+
+        const wb = XLSX.utils.book_new(); // Create a new workbook
+
+        employees.forEach(employee => {
+            const employeeId = employee.id;
+            const employeeName = employee.name;
+            const employeeMonthsData = allAttendanceRecords[employeeId];
+
+            if (employeeMonthsData) {
+                // Iterate through each month for the employee
+                for (const monthDocId in employeeMonthsData) {
+                    const monthData = employeeMonthsData[monthDocId];
+                    const daysData = monthData.days || [];
+                    const monthBaseSalary = monthData.baseSalary || 0;
+
+                    // Calculate summary for the current month's data
+                    const currentMonthDate = new Date(parseInt(monthDocId.split('-')[0]), parseInt(monthDocId.split('-')[1]) - 1, 1);
+                    const monthName = currentMonthDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+                    let present = 0;
+                    let absent = 0;
+                    let totalOT = 0;
+                    const totalDaysInMonth = daysData.length;
+                    const Sundays = daysData.filter(d => new Date(d.date).getDay() === 0).length;
+                    const actualWorkingDays = totalDaysInMonth - Sundays;
+
+                    daysData.forEach(d => {
+                        const day = new Date(d.date).getDay();
+                        const isWorkingDay = day !== 0;
+
+                        if (d.inTime && d.inTime.trim() !== '' && d.inTime.toUpperCase() !== 'H' && d.outTime && d.outTime.trim() !== '' && d.outTime.toUpperCase() !== 'H') {
+                            present++;
+                        } else if (isWorkingDay && (!d.inTime || d.inTime.trim() === '' || d.inTime.toUpperCase() === 'H')) {
+                            absent++;
+                        }
+
+                        if (typeof d.overTime === 'number' && d.overTime > 0) {
+                            totalOT += d.overTime;
+                        }
+                    });
+
+                    absent = Math.min(absent, actualWorkingDays - present);
+                    present = Math.min(present, actualWorkingDays);
+
+                    const otAmount = totalOT * OT_RATE;
+                    const totalSalary = monthBaseSalary + otAmount;
+
+
+                    // Prepare data for the current employee's month sheet
+                    const sheetData = [
+                        ['Employee Name:', employeeName],
+                        ['Month:', monthName],
+                        [''], // Spacer
+                        ['Date', 'In Time', 'Out Time', 'Over Time (Hours)', 'Remarks'],
+                        ...daysData.map(d => [
+                            new Date(d.date + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' }),
+                            d.inTime,
+                            d.outTime,
+                            d.overTime,
+                            d.remarks
+                        ]),
+                        [''], // Spacer
+                        ['Summary:'],
+                        ['Absent Days:', absent],
+                        ['Present Days:', present],
+                        ['Base Salary:', `₹${monthBaseSalary.toFixed(2)}`],
+                        ['Total OT (Hours):', totalOT.toFixed(2)],
+                        ['Total OT (Amount):', `₹${otAmount.toFixed(2)}`],
+                        ['Total Payable:', `₹${totalSalary.toFixed(2)}`]
+                    ];
+
+                    // Create a worksheet
+                    const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+                    // Add some column widths for better display (optional)
+                    ws['!cols'] = [
+                        { wch: 15 }, // Date
+                        { wch: 12 }, // In Time
+                        { wch: 12 }, // Out Time
+                        { wch: 18 }, // Over Time (Hours)
+                        { wch: 30 }  // Remarks
+                    ];
+
+                    // Name the sheet: "Employee Name Month" (truncate if too long for Excel)
+                    const sheetName = `${employeeName} ${currentMonthDate.toLocaleString('default', { month: 'short' })}`;
+                    XLSX.utils.book_append_sheet(wb, ws, sheetName.substring(0, 31)); // Excel sheet name max 31 chars
+                }
+            }
+        });
+
+        if (wb.SheetNames.length === 0) {
+            alert("No attendance data found for any employee to export.");
+            return;
+        }
+
+        // Write the workbook to a buffer
+        const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+        const blob = new Blob([wbout], { type: 'application/octet-stream' });
+
+        // Save the file
+        const fileName = `Attendance_Report_${currentDate.getFullYear()}_${currentDate.getMonth() + 1}.xlsx`;
+        saveAs(blob, fileName);
+
+        alert("Excel file downloaded!");
+    };
+
+
     // --- Render UI ---
     return (
         <div className="app-container">
@@ -320,6 +434,7 @@ const AttendanceTracker = () => {
                 setNewEmployeeName={setNewEmployeeName}
                 handleAddEmployee={handleAddEmployee}
                 handleDeleteEmployee={handleDeleteEmployee}
+                handleExportExcel={handleExportExcel} // Pass the new handler
             />
             {isLoading ? (
                 <div className="loading-table-data">
@@ -339,7 +454,7 @@ const AttendanceTracker = () => {
     );
 };
 
-// --- Sub-Components ---
+// --- Sub-Components (Modified Controls to include export button) ---
 const Header = () => (
     <header className="header-section">
         <h1 className="header-title">Employee Attendance Recorder</h1>
@@ -347,7 +462,7 @@ const Header = () => (
     </header>
 );
 
-const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDate, handleMonthChange, handleSave, newEmployeeName, setNewEmployeeName, handleAddEmployee, handleDeleteEmployee }) => (
+const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDate, handleMonthChange, handleSave, newEmployeeName, setNewEmployeeName, handleAddEmployee, handleDeleteEmployee, handleExportExcel }) => (
     <div className="controls-section">
         <div className="employee-group">
             <label htmlFor="employee-select" className="label-icon"><User className="lucide-icon" /> Employee</label>
@@ -361,7 +476,7 @@ const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDat
                 {employees.length === 0 && <option value="">No Employees</option>}
                 {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
             </select>
-             <form onSubmit={handleAddEmployee} className="add-employee-form">
+            <form onSubmit={handleAddEmployee} className="add-employee-form">
                 <input
                     type="text"
                     value={newEmployeeName}
@@ -404,6 +519,14 @@ const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDat
                 disabled={!selectedEmployee} 
             >
                 Delete Employee
+            </button>
+            <button
+                onClick={handleExportExcel} // New Export button
+                className="export-excel-button"
+                disabled={Object.keys(employees).length === 0 || Object.keys(allAttendanceRecords).length === 0}
+            >
+                <Download className="lucide-icon" />
+                Export to Excel
             </button>
         </div>
     </div>
@@ -464,7 +587,12 @@ const Summary = ({ data, baseSalary, otRate, setBaseSalary }) => {
             const day = new Date(d.date).getDay();
             const isWorkingDay = day !== 0;
 
-            if (d.inTime && d.inTime.trim() !== '' && d.inTime.toUpperCase() !== 'H' && d.outTime && d.outTime.trim() !== '' && d.outTime.toUpperCase() !== 'H') {
+            if (d.inTime && d.inTime.trim() !== '' && d.inTime.toUpperCase() !== 'H' && d.outTime && d.outTime.trim() !== '' && d.outTime.toUpperCase() === 'H') {
+                 // If inTime is present but outTime is 'H' (holiday/half-day), it's not a full present day for attendance counting,
+                 // but ensure OT isn't calculated if 'H' for outTime.
+                 // This condition for 'H' in outTime might need refinement based on exact business logic.
+                 // For now, let's count as present only if both times are valid, otherwise consider it as absent if a working day.
+            } else if (d.inTime && d.inTime.trim() !== '' && d.inTime.toUpperCase() !== 'H' && d.outTime && d.outTime.trim() !== '' && d.outTime.toUpperCase() !== 'H') {
                 present++;
             } else if (isWorkingDay && (!d.inTime || d.inTime.trim() === '' || d.inTime.toUpperCase() === 'H')) {
                 absent++;
@@ -475,8 +603,9 @@ const Summary = ({ data, baseSalary, otRate, setBaseSalary }) => {
             }
         });
 
+        // Ensure absent count doesn't exceed available working days minus actual present days
         absent = Math.min(absent, actualWorkingDays - present);
-        present = Math.min(present, actualWorkingDays);
+        present = Math.min(present, actualWorkingDays); // Present days cannot exceed actual working days
 
         const otAmount = totalOT * otRate;
         const totalSalary = baseSalary + otAmount;
@@ -489,17 +618,17 @@ const Summary = ({ data, baseSalary, otRate, setBaseSalary }) => {
             <SummaryItem label="Absent" value={summaryStats.absent} />
             <SummaryItem label="Present" value={summaryStats.present} />
             <SummaryItem label="Base Salary">
-                 <input
-                    type="number"
-                    value={baseSalary}
-                    onChange={(e) => setBaseSalary(e.target.value)} 
-                    className="base-salary-input"
-                />
+                    <input
+                        type="number"
+                        value={baseSalary}
+                        onChange={(e) => setBaseSalary(e.target.value)} 
+                        className="base-salary-input"
+                    />
             </SummaryItem>
             <SummaryItem label="OT (Hours)" value={summaryStats.totalOT.toFixed(2)} />
             <SummaryItem label="OT (Amount)" value={`₹${summaryStats.otAmount.toFixed(2)}`} />
             <div className="total-payable-container">
-                 <SummaryItem label="Total Payable" value={`₹${summaryStats.totalSalary.toFixed(2)}`} isTotal={true} />
+                    <SummaryItem label="Total Payable" value={`₹${summaryStats.totalSalary.toFixed(2)}`} isTotal={true} />
             </div>
         </div>
     );
