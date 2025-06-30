@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save, Trash2 } from 'lucide-react'; // Added Trash2 icon
 
 // --- Helper function for time conversion and OT calculation ---
 const timeToMinutes = (timeStr) => {
@@ -62,7 +62,7 @@ const AttendanceTracker = () => {
     const [selectedEmployee, setSelectedEmployee] = useState('');
     const [currentDate, setCurrentDate] = useState(new Date());
     const [attendanceData, setAttendanceData] = useState([]); // Attendance for the CURRENTLY selected month/employee
-    const [baseSalary, setBaseSalary] = useState(8500);
+    const [baseSalary, setBaseSalary] = useState(8500); // Base salary for the CURRENTLY selected month/employee
     const [isLoading, setIsLoading] = useState(true);
     const [newEmployeeName, setNewEmployeeName] = useState('');
 
@@ -110,6 +110,18 @@ const AttendanceTracker = () => {
         }
     }, []); // Empty dependency array means this runs once on mount
 
+    // --- Centralized function to update a month's record in allAttendanceRecords ---
+    const updateMonthRecord = (employeeId, year, month, daysData, salaryValue) => {
+        const monthDocId = `${year}-${month}`;
+        setAllAttendanceRecords(prevRecords => ({
+            ...prevRecords,
+            [employeeId]: {
+                ...(prevRecords[employeeId] || {}),
+                [monthDocId]: { days: daysData, baseSalary: salaryValue }
+            }
+        }));
+    };
+
     // --- Update current attendance data when selected employee or month changes ---
     useEffect(() => {
         if (!selectedEmployee || isLoading) return; // Wait until initial load is complete
@@ -118,13 +130,12 @@ const AttendanceTracker = () => {
         const month = currentDate.getMonth() + 1; // getMonth() is 0-indexed
         const monthDocId = `${year}-${month}`; // e.g., "2024-7"
 
-        // Get data for the current employee and month from allAttendanceRecords
         const employeeRecords = allAttendanceRecords[selectedEmployee] || {};
         const currentMonthData = employeeRecords[monthDocId];
 
         if (currentMonthData) {
             setAttendanceData(currentMonthData.days || []);
-            setBaseSalary(currentMonthData.baseSalary || 8500);
+            setBaseSalary(currentMonthData.baseSalary || 8500); // Ensure baseSalary is loaded
         } else {
             // Generate new month data if it doesn't exist
             const daysInMonth = new Date(year, month, 0).getDate(); // month is 1-indexed for this constructor
@@ -141,23 +152,17 @@ const AttendanceTracker = () => {
             setAttendanceData(newMonthDays);
             setBaseSalary(8500); // Default base salary for new months
 
-            // Auto-save this new month structure to allAttendanceRecords
-            setAllAttendanceRecords(prevRecords => ({
-                ...prevRecords,
-                [selectedEmployee]: {
-                    ...(prevRecords[selectedEmployee] || {}),
-                    [monthDocId]: { days: newMonthDays, baseSalary: 8500 }
-                }
-            }));
+            // Auto-save this new month structure to allAttendanceRecords using the centralized function
+            updateMonthRecord(selectedEmployee, year, month, newMonthDays, 8500);
         }
         // Save the last selected employee ID for persistence
         localStorage.setItem('last_selected_employee_id', selectedEmployee);
 
     }, [selectedEmployee, currentDate, isLoading, allAttendanceRecords]); // Depend on allAttendanceRecords for updates
 
-    // --- Save allAttendanceRecords and employees whenever they change ---
+    // --- Save allAttendanceRecords whenever it changes (after initial load) ---
     useEffect(() => {
-        if (!isLoading) { // Only save after initial load
+        if (!isLoading) {
             try {
                 localStorage.setItem('attendance_records', JSON.stringify(allAttendanceRecords));
             } catch (error) {
@@ -167,6 +172,7 @@ const AttendanceTracker = () => {
         }
     }, [allAttendanceRecords, isLoading]);
 
+    // --- Save employees whenever it changes (after initial load) ---
     useEffect(() => {
         if (!isLoading) {
             try {
@@ -205,21 +211,12 @@ const AttendanceTracker = () => {
         updatedData[index] = currentRow;
         setAttendanceData(updatedData);
 
-        // Instantly update allAttendanceRecords for the current month
+        // Instantly update allAttendanceRecords for the current month using the centralized function
         const year = currentDate.getFullYear();
         const month = currentDate.getMonth() + 1;
-        const monthDocId = `${year}-${month}`;
-
-        setAllAttendanceRecords(prevRecords => ({
-            ...prevRecords,
-            [selectedEmployee]: {
-                ...(prevRecords[selectedEmployee] || {}),
-                [monthDocId]: { days: updatedData, baseSalary: baseSalary } // Ensure baseSalary is also updated here
-            }
-        }));
+        updateMonthRecord(selectedEmployee, year, month, updatedData, baseSalary); // Pass current baseSalary
     };
 
-    // Adjusted handleBaseSalaryChange to be a direct handler
     const handleBaseSalaryChange = (value) => {
         const newSalary = parseFloat(value) || 0;
         setBaseSalary(newSalary);
@@ -227,15 +224,7 @@ const AttendanceTracker = () => {
         // Also update the baseSalary in allAttendanceRecords for the current month
         const year = currentDate.getFullYear();
         const month = currentDate.getMonth() + 1;
-        const monthDocId = `${year}-${month}`;
-
-        setAllAttendanceRecords(prevRecords => ({
-            ...prevRecords,
-            [selectedEmployee]: {
-                ...(prevRecords[selectedEmployee] || {}),
-                [monthDocId]: { days: attendanceData, baseSalary: newSalary }
-            }
-        }));
+        updateMonthRecord(selectedEmployee, year, month, attendanceData, newSalary); // Pass current attendanceData
     };
 
     const handleSave = () => {
@@ -256,11 +245,11 @@ const AttendanceTracker = () => {
         setNewEmployeeName('');
         setSelectedEmployee(newId); // Select the new employee
 
-        // Initialize empty attendance records for the new employee
-        setAllAttendanceRecords(prevRecords => ({
-            ...prevRecords,
-            [newId]: {} // New employee has no attendance records initially
-        }));
+        // Initialize empty attendance records for the new employee (done automatically by useEffect now)
+        // setAllAttendanceRecords(prevRecords => ({
+        //     ...prevRecords,
+        //     [newId]: {} // New employee has no attendance records initially
+        // }));
     };
 
     const handleDeleteEmployee = () => {
@@ -398,8 +387,9 @@ const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDat
             <button
                 onClick={handleDeleteEmployee}
                 className="delete-button"
-                disabled={!selectedEmployee}
+                disabled={!selectedEmployee || employees.length <= 1} // Disable if no employee selected or only one employee left
             >
+                <Trash2 className="lucide-icon" /> {/* Using Trash2 for delete */}
                 Delete Employee
             </button>
         </div>
@@ -444,41 +434,49 @@ const EditableCell = ({ value, onChange, type = 'text', placeholder = '' }) => (
         onChange={(e) => onChange(e.target.value)}
         className="editable-cell-input"
         placeholder={placeholder}
-        {...(type === 'number' && { min: "0" })}
+        // Ensure that numeric input allows empty string for clearing
+        {...(type === 'number' && { min: "0", step: "0.01" })} // Added step for decimal OT
     />
 );
 
 const Summary = ({ data, baseSalary, otRate, setBaseSalary }) => {
     const summaryStats = useMemo(() => {
-        let present = 0;
-        let absent = 0;
-        let totalOT = 0;
+        let presentDays = 0;
+        let totalOvertimeHours = 0;
         const totalDaysInMonth = data.length;
-        const Sundays = data.filter(d => new Date(d.date).getDay() === 0).length;
-        const actualWorkingDays = totalDaysInMonth - Sundays;
+        const sundaysCount = data.filter(d => new Date(d.date).getDay() === 0).length;
+        const actualWorkingDays = totalDaysInMonth - sundaysCount;
 
         data.forEach(d => {
             const day = new Date(d.date).getDay();
-            const isWorkingDay = day !== 0;
+            const isWorkingDay = day !== 0; // Assuming Sunday is a non-working day
 
-            if (d.inTime && d.inTime.trim() !== '' && d.inTime.toUpperCase() !== 'H' && d.outTime && d.outTime.trim() !== '' && d.outTime.toUpperCase() !== 'H') {
-                present++;
-            } else if (isWorkingDay && (!d.inTime || d.inTime.trim() === '' || d.inTime.toUpperCase() === 'H')) {
-                absent++;
+            const hasInTime = d.inTime && d.inTime.trim() !== '' && d.inTime.toUpperCase() !== 'H';
+            const hasOutTime = d.outTime && d.outTime.trim() !== '' && d.outTime.toUpperCase() !== 'H';
+
+            if (isWorkingDay && hasInTime && hasOutTime) {
+                presentDays++;
             }
 
             if (typeof d.overTime === 'number' && d.overTime > 0) {
-                totalOT += d.overTime;
+                totalOvertimeHours += d.overTime;
             }
         });
 
-        absent = Math.min(absent, actualWorkingDays - present);
-        present = Math.min(present, actualWorkingDays);
+        // Absent days are actual working days minus days marked as present.
+        // This accounts for holidays ('H') on working days effectively as absent from regular work.
+        const absentDays = Math.max(0, actualWorkingDays - presentDays);
 
-        const otAmount = totalOT * otRate;
+        const otAmount = totalOvertimeHours * otRate;
         const totalSalary = baseSalary + otAmount;
 
-        return { present, absent, totalOT, otAmount, totalSalary };
+        return {
+            present: presentDays,
+            absent: absentDays,
+            totalOT: totalOvertimeHours,
+            otAmount: otAmount,
+            totalSalary: totalSalary
+        };
     }, [data, baseSalary, otRate]);
 
     return (
@@ -491,6 +489,8 @@ const Summary = ({ data, baseSalary, otRate, setBaseSalary }) => {
                     value={baseSalary}
                     onChange={(e) => setBaseSalary(e.target.value)}
                     className="base-salary-input"
+                    min="0"
+                    step="0.01"
                 />
             </SummaryItem>
             <SummaryItem label="OT (Hours)" value={summaryStats.totalOT.toFixed(2)} />
@@ -513,6 +513,6 @@ const SummaryItem = ({ label, value, children, isTotal = false }) => (
 const Footer = () => (
     <footer className="app-footer">
         <p>Data is stored locally in your browser.</p>
+        <p>&copy; 2025 Attendance Tracker. All rights reserved.</p>
     </footer>
 );
-```
