@@ -17,8 +17,11 @@ const STANDARD_START_MINUTES = timeToMinutes('09:00'); // 9:00 AM
 const STANDARD_END_MINUTES = timeToMinutes('17:30'); // 5:30 PM
 
 const calculateOvertime = (inTimeStr, outTimeStr, dateStr) => {
-    const dayDate = new Date(dateStr);
-    const isSunday = dayDate.getDay() === 0; // Sunday is 0
+    // When creating a Date from dateStr (YYYY-MM-DD), it's crucial to ensure it's treated as UTC
+    // or specifically at the start of the day to avoid timezone shifts causing issues,
+    // especially with `getDay()`. Appending 'T00:00:00Z' is a good practice.
+    const dayDate = new Date(dateStr + 'T00:00:00Z');
+    const isSunday = dayDate.getUTCDay() === 0; // Sunday is 0 for getUTCDay()
 
     // If 'H' is explicitly entered, it's a holiday/non-working for automatic OT, so return 0
     if (inTimeStr.toUpperCase() === 'H' || outTimeStr.toUpperCase() === 'H') {
@@ -46,15 +49,9 @@ const calculateOvertime = (inTimeStr, outTimeStr, dateStr) => {
             otHours += (outMinutes - STANDARD_END_MINUTES) / 60;
         }
     } else {
-        // For Sundays, if times are entered, any time worked is considered OT for this calculation.
-        // This is a common business rule for Sundays.
-        // If they work, it's all OT, or if it's a non-working day.
-        // For simplicity, let's assume any time entry on Sunday means manual OT should be considered.
-        // The original problem stated "Sunday is a non-working day for automatic OT", so we should
-        // ensure no *automatic* OT is calculated from the standard shift hours.
-        // If a user *manually* enters OT for Sunday, that will be handled by the editable cell.
-        // So, for automatic calculation based on in/out times on Sunday, we'll return 0,
-        // as per the requirement "Sunday is a non-working day for automatic OT".
+        // As per the requirement "Sunday is a non-working day for automatic OT",
+        // we'll return 0 for automatic calculation based on in/out times on Sunday.
+        // Manual OT entered by the user will still be handled by the editable cell.
         return 0;
     }
 
@@ -158,9 +155,14 @@ const AttendanceTracker = () => {
             // This effectively rolls back to the last day of the current month.
             const daysInMonth = new Date(year, month + 1, 0).getDate();
             const newMonthDays = Array.from({ length: daysInMonth }, (_, i) => {
-                const dayDate = new Date(year, month, i + 1); // Use the correct 0-indexed month here
+                const day = i + 1;
+                // Pad month and day with leading zeros for 'YYYY-MM-DD' format
+                const monthPadded = String(month + 1).padStart(2, '0'); // Convert back to 1-indexed and pad
+                const dayPadded = String(day).padStart(2, '0');
+                const dateString = `${year}-${monthPadded}-${dayPadded}`;
+
                 return {
-                    date: dayDate.toISOString().split('T')[0],
+                    date: dateString, // Use the precisely formatted date string
                     inTime: '',
                     outTime: '',
                     overTime: 0,
@@ -422,12 +424,14 @@ const AttendanceTable = ({ data, onDataChange }) => (
         </thead>
         <tbody>
             {data.map((row, index) => {
-                const dayDate = new Date(row.date + 'T00:00:00'); // Ensure date is parsed correctly to avoid timezone issues
-                const isSunday = dayDate.getDay() === 0;
+                // Ensure date is parsed correctly to avoid timezone issues for `getDay()`
+                const dayDate = new Date(row.date + 'T00:00:00Z');
+                const isSunday = dayDate.getUTCDay() === 0;
                 return (
                     <tr key={row.date} className={isSunday ? 'sunday-row' : ''}>
                         <td className="date-cell">
-                            {new Date(row.date + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })}
+                            {/* Display using a robust date string to avoid local timezone issues for display */}
+                            {new Date(row.date + 'T00:00:00Z').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })}
                         </td>
                         <td><EditableCell value={row.inTime} onChange={(val) => onDataChange(index, 'inTime', val)} placeholder="HH:MM" /></td>
                         <td><EditableCell value={row.outTime} onChange={(val) => onDataChange(index, 'outTime', val)} placeholder="HH:MM" /></td>
@@ -457,10 +461,10 @@ const Summary = ({ data, baseSalary, otRate, setBaseSalary }) => {
         let presentDays = 0;
         let absentDays = 0;
         let totalOvertimeHours = 0;
-        // const totalDaysInMonth = data.length; // Not directly used in current summary calculation
 
         data.forEach(d => {
-            const day = new Date(d.date + 'T00:00:00').getDay(); // Ensure parsing with timezone in mind
+            // Use 'T00:00:00Z' to parse the date as UTC and avoid local timezone effects on getUTCDay()
+            const day = new Date(d.date + 'T00:00:00Z').getUTCDay();
             const isWorkingDay = day !== 0; // Assuming Sunday is a non-working day
 
             const hasValidInTime = d.inTime && d.inTime.trim() !== '' && d.inTime.toUpperCase() !== 'H';
@@ -474,8 +478,6 @@ const Summary = ({ data, baseSalary, otRate, setBaseSalary }) => {
                 } else if (!isHolidayMarked) { // If it's a working day, and no time, and not marked 'H'
                     absentDays++;
                 }
-                // If it's a working day and marked 'H', it's neither present nor absent in this count (it's a holiday)
-                // You might want a separate count for "Holidays/Leaves" if needed.
             }
 
             if (typeof d.overTime === 'number' && d.overTime > 0) {
