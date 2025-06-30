@@ -18,10 +18,10 @@ const STANDARD_END_MINUTES = timeToMinutes('17:30'); // 5:30 PM
 
 const calculateOvertime = (inTimeStr, outTimeStr, dateStr) => {
     const dayDate = new Date(dateStr);
-    const isSunday = dayDate.getDay() === 0; // Sunday is 0 (assuming Sunday is a non-working day for automatic OT)
+    const isSunday = dayDate.getDay() === 0; // Sunday is 0
 
-    // If it's a Sunday or explicitly marked as 'H', no automatic OT
-    if (isSunday || inTimeStr.toUpperCase() === 'H' || outTimeStr.toUpperCase() === 'H') {
+    // If 'H' is explicitly entered, it's a holiday/non-working for automatic OT, so return 0
+    if (inTimeStr.toUpperCase() === 'H' || outTimeStr.toUpperCase() === 'H') {
         return 0;
     }
 
@@ -34,14 +34,28 @@ const calculateOvertime = (inTimeStr, outTimeStr, dateStr) => {
 
     let otHours = 0;
 
-    // Calculate early entry OT (time BEFORE 9:00 AM)
-    if (inMinutes < STANDARD_START_MINUTES) {
-        otHours += (STANDARD_START_MINUTES - inMinutes) / 60;
-    }
+    // Only calculate automatic OT for working days (not Sundays)
+    if (!isSunday) {
+        // Calculate early entry OT (time BEFORE 9:00 AM)
+        if (inMinutes < STANDARD_START_MINUTES) {
+            otHours += (STANDARD_START_MINUTES - inMinutes) / 60;
+        }
 
-    // Calculate late exit OT (time AFTER 5:30 PM)
-    if (outMinutes > STANDARD_END_MINUTES) {
-        otHours += (outMinutes - STANDARD_END_MINUTES) / 60;
+        // Calculate late exit OT (time AFTER 5:30 PM)
+        if (outMinutes > STANDARD_END_MINUTES) {
+            otHours += (outMinutes - STANDARD_END_MINUTES) / 60;
+        }
+    } else {
+        // For Sundays, if times are entered, any time worked is considered OT for this calculation.
+        // This is a common business rule for Sundays.
+        // If they work, it's all OT, or if it's a non-working day.
+        // For simplicity, let's assume any time entry on Sunday means manual OT should be considered.
+        // The original problem stated "Sunday is a non-working day for automatic OT", so we should
+        // ensure no *automatic* OT is calculated from the standard shift hours.
+        // If a user *manually* enters OT for Sunday, that will be handled by the editable cell.
+        // So, for automatic calculation based on in/out times on Sunday, we'll return 0,
+        // as per the requirement "Sunday is a non-working day for automatic OT".
+        return 0;
     }
 
     return parseFloat(otHours.toFixed(2)); // Round to 2 decimal places
@@ -244,12 +258,6 @@ const AttendanceTracker = () => {
         setEmployees(prevEmployees => [...prevEmployees, newEmployee]);
         setNewEmployeeName('');
         setSelectedEmployee(newId); // Select the new employee
-
-        // Initialize empty attendance records for the new employee (done automatically by useEffect now)
-        // setAllAttendanceRecords(prevRecords => ({
-        //     ...prevRecords,
-        //     [newId]: {} // New employee has no attendance records initially
-        // }));
     };
 
     const handleDeleteEmployee = () => {
@@ -442,30 +450,33 @@ const EditableCell = ({ value, onChange, type = 'text', placeholder = '' }) => (
 const Summary = ({ data, baseSalary, otRate, setBaseSalary }) => {
     const summaryStats = useMemo(() => {
         let presentDays = 0;
+        let absentDays = 0;
         let totalOvertimeHours = 0;
         const totalDaysInMonth = data.length;
-        const sundaysCount = data.filter(d => new Date(d.date).getDay() === 0).length;
-        const actualWorkingDays = totalDaysInMonth - sundaysCount;
 
         data.forEach(d => {
             const day = new Date(d.date).getDay();
             const isWorkingDay = day !== 0; // Assuming Sunday is a non-working day
 
-            const hasInTime = d.inTime && d.inTime.trim() !== '' && d.inTime.toUpperCase() !== 'H';
-            const hasOutTime = d.outTime && d.outTime.trim() !== '' && d.outTime.toUpperCase() !== 'H';
+            const hasValidInTime = d.inTime && d.inTime.trim() !== '' && d.inTime.toUpperCase() !== 'H';
+            const hasValidOutTime = d.outTime && d.outTime.trim() !== '' && d.outTime.toUpperCase() !== 'H';
+            const isHolidayMarked = d.inTime.toUpperCase() === 'H' || d.outTime.toUpperCase() === 'H';
 
-            if (isWorkingDay && hasInTime && hasOutTime) {
-                presentDays++;
+
+            if (isWorkingDay) {
+                if (hasValidInTime || hasValidOutTime) { // If there's any valid time entry
+                    presentDays++;
+                } else if (!isHolidayMarked) { // If it's a working day, and no time, and not marked 'H'
+                    absentDays++;
+                }
+                // If it's a working day and marked 'H', it's neither present nor absent in this count (it's a holiday)
+                // You might want a separate count for "Holidays/Leaves" if needed.
             }
 
             if (typeof d.overTime === 'number' && d.overTime > 0) {
                 totalOvertimeHours += d.overTime;
             }
         });
-
-        // Absent days are actual working days minus days marked as present.
-        // This accounts for holidays ('H') on working days effectively as absent from regular work.
-        const absentDays = Math.max(0, actualWorkingDays - presentDays);
 
         const otAmount = totalOvertimeHours * otRate;
         const totalSalary = baseSalary + otAmount;
