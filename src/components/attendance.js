@@ -81,7 +81,7 @@ const AttendanceTracker = () => {
     // Structure: { employeeId: { 'YYYY-M': { days: [...], baseSalary: num }, ... }, ... }
     const [allAttendanceRecords, setAllAttendanceRecords] = useState({});
 
-    const OT_RATE = 35.41; // Overtime rate per hour
+    // OT_RATE is no longer a fixed constant here, it's calculated in Summary component
 
     // --- Load Data from localStorage on initial mount ---
     useEffect(() => {
@@ -332,7 +332,7 @@ const AttendanceTracker = () => {
                     <div className="table-wrapper">
                         <AttendanceTable data={attendanceData} onDataChange={handleDataChange} />
                     </div>
-                    <Summary data={attendanceData} baseSalary={baseSalary} otRate={OT_RATE} setBaseSalary={handleBaseSalaryChange} />
+                    <Summary data={attendanceData} baseSalary={baseSalary} setBaseSalary={handleBaseSalaryChange} />
                 </div>
             )}
             <Footer />
@@ -456,11 +456,25 @@ const EditableCell = ({ value, onChange, type = 'text', placeholder = '' }) => (
     />
 );
 
-const Summary = ({ data, baseSalary, otRate, setBaseSalary }) => {
+const Summary = ({ data, baseSalary, setBaseSalary }) => {
     const summaryStats = useMemo(() => {
         let presentDays = 0;
         let absentDays = 0;
         let totalOvertimeHours = 0;
+
+        // --- Dynamic OT Rate Calculation ---
+        // Assuming 22 working days in a month for calculation purposes
+        const WORKING_DAYS_PER_MONTH = 22;
+        // 9:00 AM to 5:30 PM is 8.5 hours (8 hours 30 minutes)
+        const STANDARD_HOURS_PER_DAY = 8.5;
+
+        let dynamicOtRate = 0;
+        if (baseSalary > 0) {
+            const dailyRate = baseSalary / WORKING_DAYS_PER_MONTH;
+            const hourlyRate = dailyRate / STANDARD_HOURS_PER_DAY;
+            dynamicOtRate = parseFloat(hourlyRate.toFixed(2)); // Use hourly rate as OT rate, rounded
+        }
+        // --- End Dynamic OT Rate Calculation ---
 
         data.forEach(d => {
             // Use 'T00:00:00Z' to parse the date as UTC and avoid local timezone effects on getUTCDay()
@@ -485,7 +499,8 @@ const Summary = ({ data, baseSalary, otRate, setBaseSalary }) => {
             }
         });
 
-        const otAmount = totalOvertimeHours * otRate;
+        // Use dynamicOtRate here
+        const otAmount = totalOvertimeHours * dynamicOtRate;
         const totalSalary = baseSalary + otAmount;
 
         return {
@@ -493,9 +508,10 @@ const Summary = ({ data, baseSalary, otRate, setBaseSalary }) => {
             absent: absentDays,
             totalOT: totalOvertimeHours,
             otAmount: otAmount,
-            totalSalary: totalSalary
+            totalSalary: totalSalary,
+            currentOtRate: dynamicOtRate // Expose the calculated rate for display
         };
-    }, [data, baseSalary, otRate]);
+    }, [data, baseSalary]); // baseSalary is now a dependency for useMemo
 
     return (
         <div className="summary-section">
@@ -511,8 +527,10 @@ const Summary = ({ data, baseSalary, otRate, setBaseSalary }) => {
                     step="0.01"
                 />
             </SummaryItem>
-            <SummaryItem label="OT (Hours)" value={summaryStats.totalOT.toFixed(2)} />
-            <SummaryItem label="OT (Amount)" value={`₹${summaryStats.otAmount.toFixed(2)}`} />
+            {/* Display the dynamically calculated OT rate */}
+            <SummaryItem label="Hourly OT Rate" value={`₹${summaryStats.currentOtRate.toFixed(2)}`} />
+            <SummaryItem label="Total OT (Hours)" value={summaryStats.totalOT.toFixed(2)} />
+            <SummaryItem label="Total OT (Amount)" value={`₹${summaryStats.otAmount.toFixed(2)}`} />
             <div className="total-payable-container">
                 <SummaryItem label="Total Payable" value={`₹${summaryStats.totalSalary.toFixed(2)}`} isTotal={true} />
             </div>
