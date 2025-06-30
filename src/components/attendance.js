@@ -126,6 +126,7 @@ const AttendanceTracker = () => {
 
     // --- Centralized function to update a month's record in allAttendanceRecords ---
     const updateMonthRecord = (employeeId, year, month, daysData, salaryValue) => {
+        // month is 1-indexed here, as it's for the monthDocId key
         const monthDocId = `${year}-${month}`;
         setAllAttendanceRecords(prevRecords => ({
             ...prevRecords,
@@ -141,8 +142,8 @@ const AttendanceTracker = () => {
         if (!selectedEmployee || isLoading) return; // Wait until initial load is complete
 
         const year = currentDate.getFullYear();
-        const month = currentDate.getMonth() + 1; // getMonth() is 0-indexed
-        const monthDocId = `${year}-${month}`; // e.g., "2024-7"
+        const month = currentDate.getMonth(); // getMonth() is 0-indexed (0-11)
+        const monthDocId = `${year}-${month + 1}`; // e.g., "2024-7" (1-indexed month for the key)
 
         const employeeRecords = allAttendanceRecords[selectedEmployee] || {};
         const currentMonthData = employeeRecords[monthDocId];
@@ -152,9 +153,12 @@ const AttendanceTracker = () => {
             setBaseSalary(currentMonthData.baseSalary || 8500); // Ensure baseSalary is loaded
         } else {
             // Generate new month data if it doesn't exist
-            const daysInMonth = new Date(year, month, 0).getDate(); // month is 1-indexed for this constructor
+            // To get the number of days in the current month (0-indexed 'month'),
+            // we create a Date object for the 0th day of the *next* month.
+            // This effectively rolls back to the last day of the current month.
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
             const newMonthDays = Array.from({ length: daysInMonth }, (_, i) => {
-                const dayDate = new Date(year, month - 1, i + 1); // month-1 for 0-indexed
+                const dayDate = new Date(year, month, i + 1); // Use the correct 0-indexed month here
                 return {
                     date: dayDate.toISOString().split('T')[0],
                     inTime: '',
@@ -167,7 +171,8 @@ const AttendanceTracker = () => {
             setBaseSalary(8500); // Default base salary for new months
 
             // Auto-save this new month structure to allAttendanceRecords using the centralized function
-            updateMonthRecord(selectedEmployee, year, month, newMonthDays, 8500);
+            // Pass month as 1-indexed for the monthDocId key
+            updateMonthRecord(selectedEmployee, year, month + 1, newMonthDays, 8500);
         }
         // Save the last selected employee ID for persistence
         localStorage.setItem('last_selected_employee_id', selectedEmployee);
@@ -227,7 +232,7 @@ const AttendanceTracker = () => {
 
         // Instantly update allAttendanceRecords for the current month using the centralized function
         const year = currentDate.getFullYear();
-        const month = currentDate.getMonth() + 1;
+        const month = currentDate.getMonth() + 1; // Pass 1-indexed month for storage key
         updateMonthRecord(selectedEmployee, year, month, updatedData, baseSalary); // Pass current baseSalary
     };
 
@@ -237,7 +242,7 @@ const AttendanceTracker = () => {
 
         // Also update the baseSalary in allAttendanceRecords for the current month
         const year = currentDate.getFullYear();
-        const month = currentDate.getMonth() + 1;
+        const month = currentDate.getMonth() + 1; // Pass 1-indexed month for storage key
         updateMonthRecord(selectedEmployee, year, month, attendanceData, newSalary); // Pass current attendanceData
     };
 
@@ -417,7 +422,7 @@ const AttendanceTable = ({ data, onDataChange }) => (
         </thead>
         <tbody>
             {data.map((row, index) => {
-                const dayDate = new Date(row.date);
+                const dayDate = new Date(row.date + 'T00:00:00'); // Ensure date is parsed correctly to avoid timezone issues
                 const isSunday = dayDate.getDay() === 0;
                 return (
                     <tr key={row.date} className={isSunday ? 'sunday-row' : ''}>
@@ -452,10 +457,10 @@ const Summary = ({ data, baseSalary, otRate, setBaseSalary }) => {
         let presentDays = 0;
         let absentDays = 0;
         let totalOvertimeHours = 0;
-        const totalDaysInMonth = data.length;
+        // const totalDaysInMonth = data.length; // Not directly used in current summary calculation
 
         data.forEach(d => {
-            const day = new Date(d.date).getDay();
+            const day = new Date(d.date + 'T00:00:00').getDay(); // Ensure parsing with timezone in mind
             const isWorkingDay = day !== 0; // Assuming Sunday is a non-working day
 
             const hasValidInTime = d.inTime && d.inTime.trim() !== '' && d.inTime.toUpperCase() !== 'H';
