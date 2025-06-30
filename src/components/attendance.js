@@ -2,13 +2,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, onSnapshot, collection, addDoc, getDocs, query, deleteDoc } from 'firebase/firestore'; 
-// Import Lucide React icons here so they are available to sub-components if defined in the same file
-import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save } from 'lucide-react'; // <--- THIS LINE IS CRUCIAL
-
+import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save, Download } from 'lucide-react'; 
+import * as XLSX from 'xlsx'; 
 
 // --- IMPORTANT: Firebase Configuration ---
-// This configuration is provided by the environment.
-// In a real-world scenario, you would replace this with your own Firebase project config.
 const firebaseConfig = {
   apiKey: "AIzaSyCAkkrQHXDCOdp023zAPexRt26AxHysZyI",
   authDomain: "attendance-f2215.firebaseapp.com",
@@ -21,35 +18,75 @@ const firebaseConfig = {
 
 const __app_id = firebaseConfig.appId;
 
+// --- Helper function for time conversion and OT calculation ---
+const timeToMinutes = (timeStr) => {
+    if (!timeStr || timeStr.trim() === '' || timeStr.toUpperCase() === 'H') return NaN;
+    const parts = timeStr.split(':');
+    if (parts.length !== 2) return NaN;
+    const hours = parseInt(parts[0], 10);
+    const minutes = parseInt(parts[1], 10);
+    if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return NaN;
+    return hours * 60 + minutes;
+};
+
+// Standard working hours in minutes from midnight
+const STANDARD_START_MINUTES = timeToMinutes('09:00'); // 9:00 AM
+const STANDARD_END_MINUTES = timeToMinutes('17:30'); // 5:30 PM
+
+const calculateOvertime = (inTimeStr, outTimeStr, dateStr) => {
+    const dayDate = new Date(dateStr);
+    const isSunday = dayDate.getDay() === 0; // Sunday is 0
+
+    // If it's a Sunday or explicitly marked as 'H', no automatic OT
+    if (isSunday || inTimeStr.toUpperCase() === 'H' || outTimeStr.toUpperCase() === 'H') {
+        return 0;
+    }
+
+    const inMinutes = timeToMinutes(inTimeStr);
+    const outMinutes = timeToMinutes(outTimeStr);
+
+    if (isNaN(inMinutes) || isNaN(outMinutes)) {
+        return 0; // Cannot calculate if times are invalid or missing
+    }
+
+    let otHours = 0;
+
+    // Calculate early entry OT (time before 9:00 AM)
+    if (inMinutes < STANDARD_START_MINUTES) {
+        otHours += (STANDARD_START_MINUTES - inMinutes) / 60;
+    }
+
+    // Calculate late exit OT (time after 5:30 PM)
+    if (outMinutes > STANDARD_END_MINUTES) {
+        otHours += (outMinutes - STANDARD_END_MINUTES) / 60;
+    }
+    
+    return parseFloat(otHours.toFixed(2)); // Round to 2 decimal places
+};
+
 // --- Main App Component ---
 export default function App() {
-    // --- State Management ---
     const [db, setDb] = useState(null);
     const [auth, setAuth] = useState(null);
     const [userId, setUserId] = useState(null);
     const [isAuthReady, setIsAuthReady] = useState(false);
     const [appId, setAppId] = useState('default-app-id');
 
-    // --- Firebase Initialization and Authentication ---
     useEffect(() => {
-        // Set the App ID from the global variable if available
         if (typeof __app_id !== 'undefined') {
             setAppId(__app_id);
         }
 
-        // Initialize Firebase services
         const app = initializeApp(firebaseConfig);
         const firestore = getFirestore(app);
         const authInstance = getAuth(app);
         setDb(firestore);
         setAuth(authInstance);
 
-        // Set up authentication state listener
         const unsubscribe = onAuthStateChanged(authInstance, (user) => {
             if (user) {
                 setUserId(user.uid);
             } else {
-                // If no user, sign in anonymously for this session
                 signInAnonymously(authInstance).catch(error => {
                     console.error("Anonymous sign-in failed:", error);
                 });
@@ -57,11 +94,9 @@ export default function App() {
             setIsAuthReady(true);
         });
 
-        // Cleanup subscription on unmount
         return () => unsubscribe();
     }, []);
 
-    // --- Render Loading or Main App ---
     if (!isAuthReady || !db) {
         return (
             <div className="loading-screen">
@@ -83,7 +118,6 @@ export default function App() {
 
 // --- Attendance Tracker Component ---
 const AttendanceTracker = ({ db, appId, userId }) => {
-    // --- State Management ---
     const [employees, setEmployees] = useState([]);
     const [selectedEmployee, setSelectedEmployee] = useState('');
     const [currentDate, setCurrentDate] = useState(new Date());
@@ -94,9 +128,7 @@ const AttendanceTracker = ({ db, appId, userId }) => {
 
     const OT_RATE = 35.41; // Overtime rate per hour
 
-    // --- Firestore Collection Path ---
     const getCollectionPath = useMemo(() => (collectionName) => `/artifacts/${appId}/public/data/${collectionName}`, [appId]);
-
 
     // --- Fetch Employees ---
     useEffect(() => {
@@ -106,7 +138,6 @@ const AttendanceTracker = ({ db, appId, userId }) => {
 
         const unsubscribe = onSnapshot(q, async (querySnapshot) => {
             if (querySnapshot.empty) {
-                // If no employees, create a default one
                 const defaultEmployee = { name: 'John Doe' };
                 try {
                     const docRef = await addDoc(collection(db, employeesColPath), defaultEmployee);
@@ -118,15 +149,13 @@ const AttendanceTracker = ({ db, appId, userId }) => {
             } else {
                 const fetchedEmployees = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 setEmployees(fetchedEmployees);
-                if (!selectedEmployee && fetchedEmployees.length > 0) {
-                    // If selected employee no longer exists (e.g., was deleted), select the first one
-                    if (!fetchedEmployees.some(emp => emp.id === selectedEmployee)) {
-                         setSelectedEmployee(fetchedEmployees[0].id);
-                    } else if (!selectedEmployee) { // If nothing was selected initially
+                if (!selectedEmployee || !fetchedEmployees.some(emp => emp.id === selectedEmployee)) {
+                    // If selected employee is empty or no longer exists, select the first one
+                    if (fetchedEmployees.length > 0) {
                         setSelectedEmployee(fetchedEmployees[0].id);
+                    } else {
+                        setSelectedEmployee(''); // No employees left
                     }
-                } else if (fetchedEmployees.length === 0) {
-                    setSelectedEmployee(''); // No employees left
                 }
             }
         });
@@ -147,25 +176,27 @@ const AttendanceTracker = ({ db, appId, userId }) => {
         const unsubscribe = onSnapshot(docRef, (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
+                console.log("Fetched data:", data); // Log fetched data
                 setAttendanceData(data.days || []);
                 setBaseSalary(data.baseSalary || 8500);
             } else {
-                // Generate data for the month if it doesn't exist
                 const daysInMonth = new Date(year, month + 1, 0).getDate();
                 const newMonthData = Array.from({ length: daysInMonth }, (_, i) => {
                     const dayDate = new Date(year, month, i + 1);
-                    // For Sundays, default to empty strings, allowing user to fill if needed
                     return {
                         date: dayDate.toISOString().split('T')[0],
                         inTime: '',
                         outTime: '',
-                        overTime: 0,
+                        overTime: 0, // Initialize OT to 0
                         remarks: ''
                     };
                 });
                 setAttendanceData(newMonthData);
                 setBaseSalary(8500);
             }
+            setIsLoading(false);
+        }, (error) => {
+            console.error("Error fetching attendance data:", error); // Log fetching errors
             setIsLoading(false);
         });
 
@@ -184,11 +215,23 @@ const AttendanceTracker = ({ db, appId, userId }) => {
 
     const handleDataChange = (index, field, value) => {
         const updatedData = [...attendanceData];
-        if (field === 'overTime') {
-            updatedData[index][field] = value === '' ? '' : parseFloat(value) || 0;
-        } else {
-            updatedData[index][field] = value;
+        const currentRow = { ...updatedData[index] }; // Create a mutable copy of the row
+
+        // Update the specific field first
+        currentRow[field] = value;
+
+        // Apply automatic OT calculation if inTime or outTime changed
+        if (field === 'inTime' || field === 'outTime') {
+            const newOT = calculateOvertime(currentRow.inTime, currentRow.outTime, currentRow.date);
+            currentRow.overTime = newOT; // Automatically update overTime
+        } else if (field === 'overTime') {
+            // If user manually changes OT, allow it and parse it correctly
+            currentRow.overTime = value === '' ? '' : parseFloat(value) || 0;
+        } else if (field === 'baseSalary') {
+            setBaseSalary(parseFloat(value) || 0); // Update baseSalary state directly
         }
+
+        updatedData[index] = currentRow; // Put the updated row back
         setAttendanceData(updatedData);
     };
 
@@ -204,11 +247,12 @@ const AttendanceTracker = ({ db, appId, userId }) => {
         const docRef = doc(db, attendanceDocPath);
 
         try {
+            console.log("Attempting to save data:", { days: attendanceData, baseSalary }); // Log data before saving
             await setDoc(docRef, { days: attendanceData, baseSalary });
             alert('Attendance saved successfully!');
         } catch (error) {
             console.error("Error saving attendance: ", error);
-            alert('Error saving attendance. See console for details.');
+            alert('Error saving attendance. Check console for details (e.g., Firestore rules).');
         }
     };
 
@@ -219,7 +263,7 @@ const AttendanceTracker = ({ db, appId, userId }) => {
             const employeesColPath = getCollectionPath('employees');
             const docRef = await addDoc(collection(db, employeesColPath), { name: newEmployeeName });
             setNewEmployeeName('');
-            setSelectedEmployee(docRef.id); // Select the new employee
+            setSelectedEmployee(docRef.id); 
         } catch (error) {
             console.error("Error adding new employee: ", error);
         }
@@ -244,11 +288,10 @@ const AttendanceTracker = ({ db, appId, userId }) => {
         if (!confirmDelete) return;
 
         try {
-            setIsLoading(true); // Show loading state during deletion
+            setIsLoading(true); 
 
             const employeeDocRef = doc(db, getCollectionPath('employees'), selectedEmployee);
 
-            // 1. Delete all attendance documents in the subcollection
             const attendanceCollectionRef = collection(employeeDocRef, 'attendance');
             const attendanceDocsSnapshot = await getDocs(attendanceCollectionRef);
 
@@ -257,18 +300,10 @@ const AttendanceTracker = ({ db, appId, userId }) => {
                 deletePromises.push(deleteDoc(docSnap.ref));
             });
 
-            await Promise.all(deletePromises); // Wait for all attendance docs to be deleted
+            await Promise.all(deletePromises); 
 
-            // 2. Delete the employee document itself
             await deleteDoc(employeeDocRef);
 
-            // Update local state:
-            // The onSnapshot listener for employees should automatically update the 'employees' state.
-            // We just need to manage the 'selectedEmployee' state here.
-            // The listener will re-run and update `employees` list.
-            
-            // If the deleted employee was the one currently selected, try to select another one
-            // or clear selection if no others exist.
             const updatedEmployeesAfterDeletion = employees.filter(emp => emp.id !== selectedEmployee);
             if (updatedEmployeesAfterDeletion.length > 0) {
                 setSelectedEmployee(updatedEmployeesAfterDeletion[0].id);
@@ -276,11 +311,98 @@ const AttendanceTracker = ({ db, appId, userId }) => {
                 setSelectedEmployee('');
             }
 
-
             alert(`Employee "${employeeToDelete.name}" and all associated data deleted successfully!`);
         } catch (error) {
             console.error("Error deleting employee or attendance data: ", error);
             alert('Error deleting employee. See console for details.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleDownloadExcel = async () => {
+        if (!db) {
+            alert("Database not initialized. Cannot download data.");
+            return;
+        }
+
+        setIsLoading(true);
+        try {
+            const employeesColPath = getCollectionPath('employees');
+            const employeesSnapshot = await getDocs(collection(db, employeesColPath));
+            const allCombinedData = [];
+
+            for (const employeeDoc of employeesSnapshot.docs) {
+                const employeeId = employeeDoc.id;
+                const employeeName = employeeDoc.data().name;
+
+                const attendanceCollectionRef = collection(doc(db, employeesColPath, employeeId), 'attendance');
+                const attendanceSnap = await getDocs(attendanceCollectionRef);
+
+                for (const monthDoc of attendanceSnap.docs) {
+                    const monthData = monthDoc.data();
+                    const monthDays = monthData.days || [];
+                    const monthBaseSalary = monthData.baseSalary || 8500;
+                    const monthDocId = monthDoc.id; 
+
+                    let present = 0;
+                    let absent = 0;
+                    let totalOT = 0;
+                    const totalDaysInMonth = monthDays.length;
+                    const Sundays = monthDays.filter(d => new Date(d.date).getDay() === 0).length;
+                    const actualWorkingDays = totalDaysInMonth - Sundays;
+
+                    monthDays.forEach(d => {
+                        const day = new Date(d.date).getDay();
+                        const isWorkingDay = day !== 0;
+
+                        if (d.inTime && d.inTime.trim() !== '' && d.inTime.toUpperCase() !== 'H' && d.outTime && d.outTime.trim() !== '' && d.outTime.toUpperCase() !== 'H') {
+                            present++;
+                        } else if (isWorkingDay && (!d.inTime || d.inTime.trim() === '' || d.inTime.toUpperCase() === 'H')) {
+                            // Consider absent if inTime is empty/invalid/H on a working day
+                            absent++;
+                        }
+
+                        if (typeof d.overTime === 'number' && d.overTime > 0) {
+                            totalOT += d.overTime;
+                        }
+                    });
+
+                    absent = Math.min(absent, actualWorkingDays - present);
+                    present = Math.min(present, actualWorkingDays);
+
+                    const otAmount = totalOT * OT_RATE;
+                    const totalSalary = monthBaseSalary + otAmount;
+
+                    allCombinedData.push({
+                        'Employee Name': employeeName,
+                        'Month-Year': monthDocId,
+                        'Present Days': present,
+                        'Absent Days': absent,
+                        'Total OT Hours': totalOT.toFixed(2),
+                        'OT Amount (₹)': otAmount.toFixed(2),
+                        'Base Salary (₹)': monthBaseSalary.toFixed(2),
+                        'Total Payable (₹)': totalSalary.toFixed(2)
+                    });
+                }
+            }
+
+            if (allCombinedData.length === 0) {
+                alert("No attendance data found to download.");
+                setIsLoading(false);
+                return;
+            }
+
+            const ws = XLSX.utils.json_to_sheet(allCombinedData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Combined Attendance Summary");
+            XLSX.writeFile(wb, "Combined_Attendance_Summary.xlsx");
+
+            alert('Combined attendance data downloaded successfully!');
+
+        } catch (error) {
+            console.error("Error downloading combined data: ", error);
+            alert('Error downloading combined attendance data. See console for details.');
         } finally {
             setIsLoading(false);
         }
@@ -301,7 +423,8 @@ const AttendanceTracker = ({ db, appId, userId }) => {
                 newEmployeeName={newEmployeeName}
                 setNewEmployeeName={setNewEmployeeName}
                 handleAddEmployee={handleAddEmployee}
-                handleDeleteEmployee={handleDeleteEmployee} // Pass delete handler
+                handleDeleteEmployee={handleDeleteEmployee}
+                handleDownloadExcel={handleDownloadExcel} 
             />
             {isLoading ? (
                 <div className="loading-table-data">
@@ -313,7 +436,7 @@ const AttendanceTracker = ({ db, appId, userId }) => {
                     <div className="table-wrapper">
                         <AttendanceTable data={attendanceData} onDataChange={handleDataChange} />
                     </div>
-                    <Summary data={attendanceData} baseSalary={baseSalary} otRate={OT_RATE} setBaseSalary={setBaseSalary} />
+                    <Summary data={attendanceData} baseSalary={baseSalary} otRate={OT_RATE} setBaseSalary={(value) => handleDataChange(null, 'baseSalary', value)} />
                 </div>
             )}
             <Footer userId={userId} appId={appId} />
@@ -330,9 +453,8 @@ const Header = () => (
     </header>
 );
 
-const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDate, handleMonthChange, handleSave, newEmployeeName, setNewEmployeeName, handleAddEmployee, handleDeleteEmployee }) => (
+const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDate, handleMonthChange, handleSave, newEmployeeName, setNewEmployeeName, handleAddEmployee, handleDeleteEmployee, handleDownloadExcel }) => (
     <div className="controls-section">
-        {/* Employee Selector & Add New */}
         <div className="employee-group">
             <label htmlFor="employee-select" className="label-icon"><User className="lucide-icon" /> Employee</label>
             <select
@@ -359,7 +481,6 @@ const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDat
             </form>
         </div>
 
-        {/* Month/Year Picker */}
         <div className="month-picker-group">
             <label className="label-icon"><Calendar className="lucide-icon" /> Month & Year</label>
             <div className="month-picker-controls">
@@ -375,8 +496,7 @@ const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDat
             </div>
         </div>
 
-        {/* Save & Delete Buttons Group */}
-        <div className="save-delete-buttons-group"> {/* New wrapper for save and delete buttons */}
+        <div className="action-buttons-group"> 
             <button
                 onClick={handleSave}
                 className="save-button"
@@ -387,9 +507,16 @@ const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDat
             <button
                 onClick={handleDeleteEmployee}
                 className="delete-button"
-                disabled={!selectedEmployee} // Disable if no employee is selected
+                disabled={!selectedEmployee} 
             >
                 Delete Employee
+            </button>
+            <button
+                onClick={handleDownloadExcel}
+                className="download-button" 
+            >
+                <Download className="lucide-icon" />
+                Download All Data
             </button>
         </div>
     </div>
@@ -450,9 +577,9 @@ const Summary = ({ data, baseSalary, otRate, setBaseSalary }) => {
             const day = new Date(d.date).getDay();
             const isWorkingDay = day !== 0;
 
-            if (d.inTime && d.inTime !== 'H' && d.outTime && d.outTime !== 'H' && d.inTime.trim() !== '' && d.outTime.trim() !== '') {
+            if (d.inTime && d.inTime.trim() !== '' && d.inTime.toUpperCase() !== 'H' && d.outTime && d.outTime.trim() !== '' && d.outTime.toUpperCase() !== 'H') {
                 present++;
-            } else if (isWorkingDay && (!d.inTime || d.inTime.trim() === '')) {
+            } else if (isWorkingDay && (!d.inTime || d.inTime.trim() === '' || d.inTime.toUpperCase() === 'H')) {
                 absent++;
             }
 
@@ -478,7 +605,7 @@ const Summary = ({ data, baseSalary, otRate, setBaseSalary }) => {
                  <input
                     type="number"
                     value={baseSalary}
-                    onChange={(e) => setBaseSalary(parseFloat(e.target.value) || 0)}
+                    onChange={(e) => setBaseSalary(e.target.value)} // Changed to pass event value directly
                     className="base-salary-input"
                 />
             </SummaryItem>
