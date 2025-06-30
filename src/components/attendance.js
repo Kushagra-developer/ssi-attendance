@@ -1,22 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, setDoc, onSnapshot, collection, addDoc, getDocs, query, deleteDoc } from 'firebase/firestore'; 
-import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save, Download } from 'lucide-react'; 
-import * as XLSX from 'xlsx'; 
+// Removed all Firebase imports
+import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save } from 'lucide-react'; // Removed Download icon
 
-// --- IMPORTANT: Firebase Configuration ---
-const firebaseConfig = {
-  apiKey: "AIzaSyCAkkrQHXDCOdp023zAPexRt26AxHysZyI",
-  authDomain: "attendance-f2215.firebaseapp.com",
-  projectId: "attendance-f2215",
-  storageBucket: "attendance-f2215.firebasestorage.app",
-  messagingSenderId: "326427156653",
-  appId: "1:326427156653:web:39ed8d2227680f1924a624",
-  measurementId: "G-394609E266"
-};
-
-const __app_id = firebaseConfig.appId;
+// Removed Firebase config and __app_id
 
 // --- Helper function for time conversion and OT calculation ---
 const timeToMinutes = (timeStr) => {
@@ -64,145 +50,139 @@ const calculateOvertime = (inTimeStr, outTimeStr, dateStr) => {
     return parseFloat(otHours.toFixed(2)); // Round to 2 decimal places
 };
 
-// --- Main App Component ---
+// --- Main App Component (simplified as no Firebase setup) ---
 export default function App() {
-    const [db, setDb] = useState(null);
-    const [auth, setAuth] = useState(null);
-    const [userId, setUserId] = useState(null);
-    const [isAuthReady, setIsAuthReady] = useState(false);
-    const [appId, setAppId] = useState('default-app-id');
-
-    useEffect(() => {
-        if (typeof __app_id !== 'undefined') {
-            setAppId(__app_id);
-        }
-
-        const app = initializeApp(firebaseConfig);
-        const firestore = getFirestore(app);
-        const authInstance = getAuth(app);
-        setDb(firestore);
-        setAuth(authInstance);
-
-        const unsubscribe = onAuthStateChanged(authInstance, (user) => {
-            if (user) {
-                setUserId(user.uid);
-            } else {
-                signInAnonymously(authInstance).catch(error => {
-                    console.error("Anonymous sign-in failed:", error);
-                });
-            }
-            setIsAuthReady(true);
-        });
-
-        return () => unsubscribe();
-    }, []);
-
-    if (!isAuthReady || !db) {
-        return (
-            <div className="loading-screen">
-                <div className="loading-text-container">
-                    <div className="loading-spinner"></div>
-                    <h2 className="loading-title">Initializing Attendance Tracker...</h2>
-                    <p className="loading-message">Please wait a moment.</p>
-                </div>
-            </div>
-        );
-    }
-
+    // No Firebase related states or effects needed here anymore.
+    // The App component now directly renders AttendanceTracker.
     return (
         <div className="app-main-wrapper">
-            <AttendanceTracker db={db} appId={appId} userId={userId} />
+            <AttendanceTracker />
         </div>
     );
 }
 
 // --- Attendance Tracker Component ---
-const AttendanceTracker = ({ db, appId, userId }) => {
+const AttendanceTracker = () => {
     const [employees, setEmployees] = useState([]);
     const [selectedEmployee, setSelectedEmployee] = useState('');
     const [currentDate, setCurrentDate] = useState(new Date());
-    const [attendanceData, setAttendanceData] = useState([]);
+    const [attendanceData, setAttendanceData] = useState([]); // Attendance for the CURRENTLY selected month/employee
     const [baseSalary, setBaseSalary] = useState(8500);
     const [isLoading, setIsLoading] = useState(true);
     const [newEmployeeName, setNewEmployeeName] = useState('');
 
+    // Consolidated state for ALL attendance records
+    // Structure: { employeeId: { 'YYYY-M': { days: [...], baseSalary: num }, ... }, ... }
+    const [allAttendanceRecords, setAllAttendanceRecords] = useState({});
+
     const OT_RATE = 35.41; // Overtime rate per hour
 
-    const getCollectionPath = useMemo(() => (collectionName) => `/artifacts/${appId}/public/data/${collectionName}`, [appId]);
-
-    // --- Fetch Employees ---
+    // --- Load Data from localStorage on initial mount ---
     useEffect(() => {
-        if (!db || !appId) return;
-        const employeesColPath = getCollectionPath('employees');
-        const q = query(collection(db, employeesColPath));
+        try {
+            const storedEmployees = JSON.parse(localStorage.getItem('employees_data')) || [];
+            const storedAttendanceRecords = JSON.parse(localStorage.getItem('attendance_records')) || {};
 
-        const unsubscribe = onSnapshot(q, async (querySnapshot) => {
-            if (querySnapshot.empty) {
-                const defaultEmployee = { name: 'John Doe' };
-                try {
-                    const docRef = await addDoc(collection(db, employeesColPath), defaultEmployee);
-                    setEmployees([{ id: docRef.id, ...defaultEmployee }]);
-                    setSelectedEmployee(docRef.id);
-                } catch (e) {
-                    console.error("Error adding default employee: ", e);
-                }
+            setAllAttendanceRecords(storedAttendanceRecords);
+
+            if (storedEmployees.length === 0) {
+                // If no employees, create a default one
+                const defaultEmployee = { id: 'default-employee-1', name: 'John Doe' };
+                setEmployees([defaultEmployee]);
+                setSelectedEmployee(defaultEmployee.id);
+                localStorage.setItem('employees_data', JSON.stringify([defaultEmployee]));
             } else {
-                const fetchedEmployees = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                setEmployees(fetchedEmployees);
-                if (!selectedEmployee || !fetchedEmployees.some(emp => emp.id === selectedEmployee)) {
-                    // If selected employee is empty or no longer exists, select the first one
-                    if (fetchedEmployees.length > 0) {
-                        setSelectedEmployee(fetchedEmployees[0].id);
-                    } else {
-                        setSelectedEmployee(''); // No employees left
-                    }
+                setEmployees(storedEmployees);
+                // Try to select previously selected employee or the first one
+                const lastSelected = localStorage.getItem('last_selected_employee_id');
+                if (lastSelected && storedEmployees.some(emp => emp.id === lastSelected)) {
+                    setSelectedEmployee(lastSelected);
+                } else {
+                    setSelectedEmployee(storedEmployees[0].id);
                 }
             }
-        });
-        return () => unsubscribe();
-    }, [db, appId, selectedEmployee, getCollectionPath]);
+        } catch (error) {
+            console.error("Error loading data from localStorage:", error);
+            // Fallback to default if local storage is corrupted
+            const defaultEmployee = { id: 'default-employee-1', name: 'John Doe' };
+            setEmployees([defaultEmployee]);
+            setSelectedEmployee(defaultEmployee.id);
+            setAllAttendanceRecords({});
+            localStorage.setItem('employees_data', JSON.stringify([defaultEmployee]));
+            localStorage.setItem('attendance_records', JSON.stringify({}));
+        } finally {
+            setIsLoading(false);
+        }
+    }, []); // Empty dependency array means this runs once on mount
 
-    // --- Generate or Fetch Attendance Data ---
+    // --- Update current attendance data when selected employee or month changes ---
     useEffect(() => {
-        if (!selectedEmployee || !db) return;
+        if (!selectedEmployee || isLoading) return; // Wait until initial load is complete
 
-        setIsLoading(true);
         const year = currentDate.getFullYear();
-        const month = currentDate.getMonth();
-        const docId = `${year}-${month + 1}`;
-        const attendanceDocPath = `${getCollectionPath('employees')}/${selectedEmployee}/attendance/${docId}`;
-        const docRef = doc(db, attendanceDocPath);
+        const month = currentDate.getMonth() + 1; // getMonth() is 0-indexed
+        const monthDocId = `${year}-${month}`; // e.g., "2024-7"
 
-        const unsubscribe = onSnapshot(docRef, (docSnap) => {
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                console.log("Fetched data:", data); // Log fetched data
-                setAttendanceData(data.days || []);
-                setBaseSalary(data.baseSalary || 8500);
-            } else {
-                const daysInMonth = new Date(year, month + 1, 0).getDate();
-                const newMonthData = Array.from({ length: daysInMonth }, (_, i) => {
-                    const dayDate = new Date(year, month, i + 1);
-                    return {
-                        date: dayDate.toISOString().split('T')[0],
-                        inTime: '',
-                        outTime: '',
-                        overTime: 0, // Initialize OT to 0
-                        remarks: ''
-                    };
-                });
-                setAttendanceData(newMonthData);
-                setBaseSalary(8500);
+        // Get data for the current employee and month from allAttendanceRecords
+        const employeeRecords = allAttendanceRecords[selectedEmployee] || {};
+        const currentMonthData = employeeRecords[monthDocId];
+
+        if (currentMonthData) {
+            setAttendanceData(currentMonthData.days || []);
+            setBaseSalary(currentMonthData.baseSalary || 8500);
+        } else {
+            // Generate new month data if it doesn't exist
+            const daysInMonth = new Date(year, month, 0).getDate(); // month is 1-indexed for this constructor
+            const newMonthDays = Array.from({ length: daysInMonth }, (_, i) => {
+                const dayDate = new Date(year, month - 1, i + 1); // month-1 for 0-indexed
+                return {
+                    date: dayDate.toISOString().split('T')[0],
+                    inTime: '',
+                    outTime: '',
+                    overTime: 0,
+                    remarks: ''
+                };
+            });
+            setAttendanceData(newMonthDays);
+            setBaseSalary(8500); // Default base salary for new months
+            
+            // Auto-save this new month structure to allAttendanceRecords
+            setAllAttendanceRecords(prevRecords => ({
+                ...prevRecords,
+                [selectedEmployee]: {
+                    ...(prevRecords[selectedEmployee] || {}),
+                    [monthDocId]: { days: newMonthDays, baseSalary: 8500 }
+                }
+            }));
+        }
+        // Save the last selected employee ID for persistence
+        localStorage.setItem('last_selected_employee_id', selectedEmployee);
+
+    }, [selectedEmployee, currentDate, isLoading, allAttendanceRecords]); // Depend on allAttendanceRecords for updates
+
+    // --- Save allAttendanceRecords and employees whenever they change ---
+    useEffect(() => {
+        if (!isLoading) { // Only save after initial load
+            try {
+                localStorage.setItem('attendance_records', JSON.stringify(allAttendanceRecords));
+            } catch (error) {
+                console.error("Error saving attendance_records to localStorage:", error);
+                alert("Error saving attendance data locally. Data might not persist.");
             }
-            setIsLoading(false);
-        }, (error) => {
-            console.error("Error fetching attendance data:", error); // Log fetching errors
-            setIsLoading(false);
-        });
+        }
+    }, [allAttendanceRecords, isLoading]);
 
-        return () => unsubscribe();
+    useEffect(() => {
+        if (!isLoading) {
+             try {
+                localStorage.setItem('employees_data', JSON.stringify(employees));
+            } catch (error) {
+                console.error("Error saving employees_data to localStorage:", error);
+                alert("Error saving employee list locally. Data might not persist.");
+            }
+        }
+    }, [employees, isLoading]);
 
-    }, [selectedEmployee, currentDate, db, getCollectionPath]);
 
     // --- Handlers ---
     const handleMonthChange = (offset) => {
@@ -215,62 +195,81 @@ const AttendanceTracker = ({ db, appId, userId }) => {
 
     const handleDataChange = (index, field, value) => {
         const updatedData = [...attendanceData];
-        const currentRow = { ...updatedData[index] }; // Create a mutable copy of the row
+        const currentRow = { ...updatedData[index] }; 
 
-        // Update the specific field first
         currentRow[field] = value;
 
-        // Apply automatic OT calculation if inTime or outTime changed
         if (field === 'inTime' || field === 'outTime') {
             const newOT = calculateOvertime(currentRow.inTime, currentRow.outTime, currentRow.date);
-            currentRow.overTime = newOT; // Automatically update overTime
+            currentRow.overTime = newOT; 
         } else if (field === 'overTime') {
-            // If user manually changes OT, allow it and parse it correctly
             currentRow.overTime = value === '' ? '' : parseFloat(value) || 0;
-        } else if (field === 'baseSalary') {
-            setBaseSalary(parseFloat(value) || 0); // Update baseSalary state directly
         }
 
-        updatedData[index] = currentRow; // Put the updated row back
+        updatedData[index] = currentRow; 
         setAttendanceData(updatedData);
-    };
 
-    const handleSave = async () => {
-        if (!selectedEmployee || !db) {
-            alert("Cannot save. No employee selected or database not initialized.");
-            return;
-        }
+        // Instantly update allAttendanceRecords for the current month
         const year = currentDate.getFullYear();
-        const month = currentDate.getMonth();
-        const docId = `${year}-${month + 1}`;
-        const attendanceDocPath = `${getCollectionPath('employees')}/${selectedEmployee}/attendance/${docId}`;
-        const docRef = doc(db, attendanceDocPath);
+        const month = currentDate.getMonth() + 1;
+        const monthDocId = `${year}-${month}`;
 
-        try {
-            console.log("Attempting to save data:", { days: attendanceData, baseSalary }); // Log data before saving
-            await setDoc(docRef, { days: attendanceData, baseSalary });
-            alert('Attendance saved successfully!');
-        } catch (error) {
-            console.error("Error saving attendance: ", error);
-            alert('Error saving attendance. Check console for details (e.g., Firestore rules).');
-        }
+        setAllAttendanceRecords(prevRecords => ({
+            ...prevRecords,
+            [selectedEmployee]: {
+                ...(prevRecords[selectedEmployee] || {}),
+                [monthDocId]: { days: updatedData, baseSalary: baseSalary } // Ensure baseSalary is also updated here
+            }
+        }));
+    };
+    
+    // Adjusted handleBaseSalaryChange to be a direct handler
+    const handleBaseSalaryChange = (value) => {
+        const newSalary = parseFloat(value) || 0;
+        setBaseSalary(newSalary);
+
+        // Also update the baseSalary in allAttendanceRecords for the current month
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth() + 1;
+        const monthDocId = `${year}-${month}`;
+
+        setAllAttendanceRecords(prevRecords => ({
+            ...prevRecords,
+            [selectedEmployee]: {
+                ...(prevRecords[selectedEmployee] || {}),
+                [monthDocId]: { days: attendanceData, baseSalary: newSalary }
+            }
+        }));
     };
 
-    const handleAddEmployee = async (e) => {
+
+    const handleSave = () => {
+        // With localStorage, changes are automatically saved via useEffects.
+        // This button acts more as a confirmation/trigger for the save effect if you modify the baseSalary field directly.
+        // The attendanceData changes automatically trigger saves in handleDataChange.
+        alert('Data saved locally!');
+    };
+
+    const handleAddEmployee = (e) => {
         e.preventDefault();
-        if (!newEmployeeName.trim() || !db) return;
-        try {
-            const employeesColPath = getCollectionPath('employees');
-            const docRef = await addDoc(collection(db, employeesColPath), { name: newEmployeeName });
-            setNewEmployeeName('');
-            setSelectedEmployee(docRef.id); 
-        } catch (error) {
-            console.error("Error adding new employee: ", error);
-        }
+        if (!newEmployeeName.trim()) return;
+
+        const newId = `emp-${Date.now()}`; // Simple unique ID
+        const newEmployee = { id: newId, name: newEmployeeName.trim() };
+
+        setEmployees(prevEmployees => [...prevEmployees, newEmployee]);
+        setNewEmployeeName('');
+        setSelectedEmployee(newId); // Select the new employee
+
+        // Initialize empty attendance records for the new employee
+        setAllAttendanceRecords(prevRecords => ({
+            ...prevRecords,
+            [newId]: {} // New employee has no attendance records initially
+        }));
     };
 
-    const handleDeleteEmployee = async () => {
-        if (!selectedEmployee || !db) {
+    const handleDeleteEmployee = () => {
+        if (!selectedEmployee) {
             alert("No employee selected to delete.");
             return;
         }
@@ -287,127 +286,28 @@ const AttendanceTracker = ({ db, appId, userId }) => {
 
         if (!confirmDelete) return;
 
-        try {
-            setIsLoading(true); 
+        // Remove from employees list
+        const updatedEmployees = employees.filter(emp => emp.id !== selectedEmployee);
+        setEmployees(updatedEmployees);
 
-            const employeeDocRef = doc(db, getCollectionPath('employees'), selectedEmployee);
+        // Remove all their attendance records
+        setAllAttendanceRecords(prevRecords => {
+            const newRecords = { ...prevRecords };
+            delete newRecords[selectedEmployee];
+            return newRecords;
+        });
 
-            const attendanceCollectionRef = collection(employeeDocRef, 'attendance');
-            const attendanceDocsSnapshot = await getDocs(attendanceCollectionRef);
-
-            const deletePromises = [];
-            attendanceDocsSnapshot.forEach((docSnap) => {
-                deletePromises.push(deleteDoc(docSnap.ref));
-            });
-
-            await Promise.all(deletePromises); 
-
-            await deleteDoc(employeeDocRef);
-
-            const updatedEmployeesAfterDeletion = employees.filter(emp => emp.id !== selectedEmployee);
-            if (updatedEmployeesAfterDeletion.length > 0) {
-                setSelectedEmployee(updatedEmployeesAfterDeletion[0].id);
-            } else {
-                setSelectedEmployee('');
-            }
-
-            alert(`Employee "${employeeToDelete.name}" and all associated data deleted successfully!`);
-        } catch (error) {
-            console.error("Error deleting employee or attendance data: ", error);
-            alert('Error deleting employee. See console for details.');
-        } finally {
-            setIsLoading(false);
+        // Select a new employee or clear selection
+        if (updatedEmployees.length > 0) {
+            setSelectedEmployee(updatedEmployees[0].id);
+        } else {
+            setSelectedEmployee('');
         }
+
+        alert(`Employee "${employeeToDelete.name}" and all associated data deleted successfully!`);
     };
 
-    const handleDownloadExcel = async () => {
-        if (!db) {
-            alert("Database not initialized. Cannot download data.");
-            return;
-        }
-
-        setIsLoading(true);
-        try {
-            const employeesColPath = getCollectionPath('employees');
-            const employeesSnapshot = await getDocs(collection(db, employeesColPath));
-            const allCombinedData = [];
-
-            for (const employeeDoc of employeesSnapshot.docs) {
-                const employeeId = employeeDoc.id;
-                const employeeName = employeeDoc.data().name;
-
-                const attendanceCollectionRef = collection(doc(db, employeesColPath, employeeId), 'attendance');
-                const attendanceSnap = await getDocs(attendanceCollectionRef);
-
-                for (const monthDoc of attendanceSnap.docs) {
-                    const monthData = monthDoc.data();
-                    const monthDays = monthData.days || [];
-                    const monthBaseSalary = monthData.baseSalary || 8500;
-                    const monthDocId = monthDoc.id; 
-
-                    let present = 0;
-                    let absent = 0;
-                    let totalOT = 0;
-                    const totalDaysInMonth = monthDays.length;
-                    const Sundays = monthDays.filter(d => new Date(d.date).getDay() === 0).length;
-                    const actualWorkingDays = totalDaysInMonth - Sundays;
-
-                    monthDays.forEach(d => {
-                        const day = new Date(d.date).getDay();
-                        const isWorkingDay = day !== 0;
-
-                        if (d.inTime && d.inTime.trim() !== '' && d.inTime.toUpperCase() !== 'H' && d.outTime && d.outTime.trim() !== '' && d.outTime.toUpperCase() !== 'H') {
-                            present++;
-                        } else if (isWorkingDay && (!d.inTime || d.inTime.trim() === '' || d.inTime.toUpperCase() === 'H')) {
-                            // Consider absent if inTime is empty/invalid/H on a working day
-                            absent++;
-                        }
-
-                        if (typeof d.overTime === 'number' && d.overTime > 0) {
-                            totalOT += d.overTime;
-                        }
-                    });
-
-                    absent = Math.min(absent, actualWorkingDays - present);
-                    present = Math.min(present, actualWorkingDays);
-
-                    const otAmount = totalOT * OT_RATE;
-                    const totalSalary = monthBaseSalary + otAmount;
-
-                    allCombinedData.push({
-                        'Employee Name': employeeName,
-                        'Month-Year': monthDocId,
-                        'Present Days': present,
-                        'Absent Days': absent,
-                        'Total OT Hours': totalOT.toFixed(2),
-                        'OT Amount (₹)': otAmount.toFixed(2),
-                        'Base Salary (₹)': monthBaseSalary.toFixed(2),
-                        'Total Payable (₹)': totalSalary.toFixed(2)
-                    });
-                }
-            }
-
-            if (allCombinedData.length === 0) {
-                alert("No attendance data found to download.");
-                setIsLoading(false);
-                return;
-            }
-
-            const ws = XLSX.utils.json_to_sheet(allCombinedData);
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, "Combined Attendance Summary");
-            XLSX.writeFile(wb, "Combined_Attendance_Summary.xlsx");
-
-            alert('Combined attendance data downloaded successfully!');
-
-        } catch (error) {
-            console.error("Error downloading combined data: ", error);
-            alert('Error downloading combined attendance data. See console for details.');
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
+    // Removed handleDownloadExcel
 
     // --- Render UI ---
     return (
@@ -419,32 +319,35 @@ const AttendanceTracker = ({ db, appId, userId }) => {
                 setSelectedEmployee={setSelectedEmployee}
                 currentDate={currentDate}
                 handleMonthChange={handleMonthChange}
-                handleSave={handleSave}
+                handleSave={handleSave} // Still keep Save button for user confirmation
                 newEmployeeName={newEmployeeName}
                 setNewEmployeeName={setNewEmployeeName}
                 handleAddEmployee={handleAddEmployee}
                 handleDeleteEmployee={handleDeleteEmployee}
-                handleDownloadExcel={handleDownloadExcel} 
+                // Removed handleDownloadExcel prop
             />
             {isLoading ? (
                 <div className="loading-table-data">
                     <div className="loading-table-spinner"></div>
-                    <p className="loading-table-message">Loading Attendance Data...</p>
+                    <p className="loading-table-message">Loading Local Data...</p>
                 </div>
             ) : (
                 <div className="attendance-table-container">
                     <div className="table-wrapper">
                         <AttendanceTable data={attendanceData} onDataChange={handleDataChange} />
                     </div>
-                    <Summary data={attendanceData} baseSalary={baseSalary} otRate={OT_RATE} setBaseSalary={(value) => handleDataChange(null, 'baseSalary', value)} />
+                    <Summary data={attendanceData} baseSalary={baseSalary} otRate={OT_RATE} setBaseSalary={handleBaseSalaryChange} />
                 </div>
             )}
-            <Footer userId={userId} appId={appId} />
+            <Footer /> {/* No userId or appId needed for Footer with local storage */}
         </div>
     );
 };
 
 // --- Sub-Components ---
+// Header, AttendanceTable, EditableCell, Summary, SummaryItem remain largely the same.
+// Controls will have the download button removed.
+// Footer will no longer display userId/appId.
 
 const Header = () => (
     <header className="header-section">
@@ -453,7 +356,7 @@ const Header = () => (
     </header>
 );
 
-const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDate, handleMonthChange, handleSave, newEmployeeName, setNewEmployeeName, handleAddEmployee, handleDeleteEmployee, handleDownloadExcel }) => (
+const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDate, handleMonthChange, handleSave, newEmployeeName, setNewEmployeeName, handleAddEmployee, handleDeleteEmployee }) => (
     <div className="controls-section">
         <div className="employee-group">
             <label htmlFor="employee-select" className="label-icon"><User className="lucide-icon" /> Employee</label>
@@ -464,7 +367,7 @@ const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDat
                 onChange={(e) => setSelectedEmployee(e.target.value)}
                 disabled={!employees.length}
             >
-                {employees.length === 0 && <option value="">Loading...</option>}
+                {employees.length === 0 && <option value="">No Employees</option>} {/* Changed text here */}
                 {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
             </select>
              <form onSubmit={handleAddEmployee} className="add-employee-form">
@@ -502,7 +405,7 @@ const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDat
                 className="save-button"
             >
                 <Save className="lucide-icon" />
-                Save Attendance
+                Save Data
             </button>
             <button
                 onClick={handleDeleteEmployee}
@@ -511,13 +414,7 @@ const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDat
             >
                 Delete Employee
             </button>
-            <button
-                onClick={handleDownloadExcel}
-                className="download-button" 
-            >
-                <Download className="lucide-icon" />
-                Download All Data
-            </button>
+            {/* Removed the Download All Data button */}
         </div>
     </div>
 );
@@ -605,7 +502,7 @@ const Summary = ({ data, baseSalary, otRate, setBaseSalary }) => {
                  <input
                     type="number"
                     value={baseSalary}
-                    onChange={(e) => setBaseSalary(e.target.value)} // Changed to pass event value directly
+                    onChange={(e) => setBaseSalary(e.target.value)} 
                     className="base-salary-input"
                 />
             </SummaryItem>
@@ -626,10 +523,8 @@ const SummaryItem = ({ label, value, children, isTotal = false }) => (
     </div>
 );
 
-const Footer = ({ userId, appId }) => (
+const Footer = () => ( // Removed props
     <footer className="app-footer">
-        <p>User ID: {userId || 'N/A'}</p>
-        <p>App ID: {appId}</p>
-        <p>Data is saved securely in real-time.</p>
+        <p>Data is stored locally in your browser.</p> {/* Updated message */}
     </footer>
 );
