@@ -2,8 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 // Removed all Firebase imports
 import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save } from 'lucide-react'; // Removed Download icon
 
-// Removed Firebase config and __app_id
-
 // --- Helper function for time conversion and OT calculation ---
 const timeToMinutes = (timeStr) => {
     if (!timeStr || timeStr.trim() === '' || timeStr.toUpperCase() === 'H') return NaN;
@@ -199,10 +197,12 @@ const AttendanceTracker = () => {
 
         currentRow[field] = value;
 
+        // Apply automatic OT calculation if inTime or outTime changed
         if (field === 'inTime' || field === 'outTime') {
             const newOT = calculateOvertime(currentRow.inTime, currentRow.outTime, currentRow.date);
             currentRow.overTime = newOT; 
         } else if (field === 'overTime') {
+            // If user manually changes OT, allow it and parse it correctly
             currentRow.overTime = value === '' ? '' : parseFloat(value) || 0;
         }
 
