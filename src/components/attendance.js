@@ -528,4 +528,4 @@ const Footer = () => (
         <p>&copy; 2025 Attendance Tracker. All rights reserved.</p>
     </footer>
 );
-```
+
