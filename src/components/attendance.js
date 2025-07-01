@@ -1,7 +1,7 @@
+```javascript
 import React, { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save, Trash2 } from 'lucide-react'; // Added Trash2 icon
+import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save, Trash2 } from 'lucide-react';
 
-// --- Helper function for time conversion and OT calculation ---
 const timeToMinutes = (timeStr) => {
     if (!timeStr || timeStr.trim() === '' || timeStr.toUpperCase() === 'H') return NaN;
     const parts = timeStr.split(':');
@@ -12,18 +12,12 @@ const timeToMinutes = (timeStr) => {
     return hours * 60 + minutes;
 };
 
-// Standard working hours in minutes from midnight
-const STANDARD_START_MINUTES = timeToMinutes('09:00'); // 9:00 AM
-const STANDARD_END_MINUTES = timeToMinutes('17:30'); // 5:30 PM
+const STANDARD_START_MINUTES = timeToMinutes('09:00');
+const STANDARD_END_MINUTES = timeToMinutes('17:30');
 
 const calculateOvertime = (inTimeStr, outTimeStr, dateStr) => {
-    // When creating a Date from dateStr (YYYY-MM-DD), it's crucial to ensure it's treated as UTC
-    // or specifically at the start of the day to avoid timezone shifts causing issues,
-    // especially with `getDay()`. Appending 'T00:00:00Z' is a good practice.
     const dayDate = new Date(dateStr + 'T00:00:00Z');
-    const isSunday = dayDate.getUTCDay() === 0; // Sunday is 0 for getUTCDay() - KEPT FOR HIGHLIGHTING LOGIC IN TABLE
-
-    // If 'H' is explicitly entered, it's a holiday/non-working for automatic OT, so return 0
+    const isSunday = dayDate.getUTCDay() === 0;
     if (inTimeStr.toUpperCase() === 'H' || outTimeStr.toUpperCase() === 'H') {
         return 0;
     }
@@ -32,26 +26,24 @@ const calculateOvertime = (inTimeStr, outTimeStr, dateStr) => {
     const outMinutes = timeToMinutes(outTimeStr);
 
     if (isNaN(inMinutes) || isNaN(outMinutes)) {
-        return 0; // Cannot calculate if times are invalid or missing, including Sundays for OT if times are present
+        return 0;
     }
 
     let otHours = 0;
 
-    // Automatic OT is calculated for all days now (including Sunday if times are present)
-    // Calculate early entry OT (time BEFORE 9:00 AM)
+
     if (inMinutes < STANDARD_START_MINUTES) {
         otHours += (STANDARD_START_MINUTES - inMinutes) / 60;
     }
 
-    // Calculate late exit OT (time AFTER 5:30 PM)
     if (outMinutes > STANDARD_END_MINUTES) {
         otHours += (outMinutes - STANDARD_END_MINUTES) / 60;
     }
 
-    return parseFloat(otHours.toFixed(2)); // Round to 2 decimal places
+    return parseFloat(otHours.toFixed(2));
 };
 
-// --- Main App Component ---
+
 export default function App() {
     return (
         <div className="app-main-wrapper">
@@ -60,23 +52,17 @@ export default function App() {
     );
 }
 
-// --- Attendance Tracker Component ---
 const AttendanceTracker = () => {
     const [employees, setEmployees] = useState([]);
     const [selectedEmployee, setSelectedEmployee] = useState('');
     const [currentDate, setCurrentDate] = useState(new Date());
-    const [attendanceData, setAttendanceData] = useState([]); // Attendance for the CURRENTLY selected month/employee
-    const [baseSalary, setBaseSalary] = useState(8500); // Base salary for the CURRENTLY selected month/employee
+    const [attendanceData, setAttendanceData] = useState([]);
+    const [baseSalary, setBaseSalary] = useState(8500);
     const [isLoading, setIsLoading] = useState(true);
     const [newEmployeeName, setNewEmployeeName] = useState('');
 
-    // Consolidated state for ALL attendance records
-    // Structure: { employeeId: { 'YYYY-M': { days: [...], baseSalary: num }, ... }, ... }
     const [allAttendanceRecords, setAllAttendanceRecords] = useState({});
 
-    // OT_RATE is no longer a fixed constant here, it's calculated in Summary component
-
-    // --- Load Data from localStorage on initial mount ---
     useEffect(() => {
         try {
             const storedEmployees = JSON.parse(localStorage.getItem('employees_data')) || [];
@@ -85,14 +71,14 @@ const AttendanceTracker = () => {
             setAllAttendanceRecords(storedAttendanceRecords);
 
             if (storedEmployees.length === 0) {
-                // If no employees, create a default one
+
                 const defaultEmployee = { id: 'default-employee-1', name: 'John Doe' };
                 setEmployees([defaultEmployee]);
                 setSelectedEmployee(defaultEmployee.id);
                 localStorage.setItem('employees_data', JSON.stringify([defaultEmployee]));
             } else {
                 setEmployees(storedEmployees);
-                // Try to select previously selected employee or the first one
+
                 const lastSelected = localStorage.getItem('last_selected_employee_id');
                 if (lastSelected && storedEmployees.some(emp => emp.id === lastSelected)) {
                     setSelectedEmployee(lastSelected);
@@ -102,8 +88,8 @@ const AttendanceTracker = () => {
             }
         } catch (error) {
             console.error("Error loading data from localStorage:", error);
-            // Fallback to default if local storage is corrupted
-            const defaultEmployee = { id: 'default-employee-1', name: 'John Doe' };
+
+            const defaultEmployee = { id: 'default-employee-1', name: 'Sukh sagar industries' };
             setEmployees([defaultEmployee]);
             setSelectedEmployee(defaultEmployee.id);
             setAllAttendanceRecords({});
@@ -112,11 +98,11 @@ const AttendanceTracker = () => {
         } finally {
             setIsLoading(false);
         }
-    }, []); // Empty dependency array means this runs once on mount
+    }, []);
 
-    // --- Centralized function to update a month's record in allAttendanceRecords ---
+
     const updateMonthRecord = (employeeId, year, month, daysData, salaryValue) => {
-        // month is 1-indexed here, as it's for the monthDocId key
+
         const monthDocId = `${year}-${month}`;
         setAllAttendanceRecords(prevRecords => ({
             ...prevRecords,
@@ -127,35 +113,30 @@ const AttendanceTracker = () => {
         }));
     };
 
-    // --- Update current attendance data when selected employee or month changes ---
     useEffect(() => {
-        if (!selectedEmployee || isLoading) return; // Wait until initial load is complete
+        if (!selectedEmployee || isLoading) return;
 
         const year = currentDate.getFullYear();
-        const month = currentDate.getMonth(); // getMonth() is 0-indexed (0-11)
-        const monthDocId = `${year}-${month + 1}`; // e.g., "2024-7" (1-indexed month for the key)
+        const month = currentDate.getMonth();
+        const monthDocId = `${year}-${month + 1}`;
 
         const employeeRecords = allAttendanceRecords[selectedEmployee] || {};
         const currentMonthData = employeeRecords[monthDocId];
 
         if (currentMonthData) {
             setAttendanceData(currentMonthData.days || []);
-            setBaseSalary(currentMonthData.baseSalary || 8500); // Ensure baseSalary is loaded
+            setBaseSalary(currentMonthData.baseSalary || 8500);
         } else {
-            // Generate new month data if it doesn't exist
-            // To get the number of days in the current month (0-indexed 'month'),
-            // we create a Date object for the 0th day of the *next* month.
-            // This effectively rolls back to the last day of the current month.
+
             const daysInMonth = new Date(year, month + 1, 0).getDate();
             const newMonthDays = Array.from({ length: daysInMonth }, (_, i) => {
                 const day = i + 1;
-                // Pad month and day with leading zeros for 'YYYY-MM-DD' format
-                const monthPadded = String(month + 1).padStart(2, '0'); // Convert back to 1-indexed and pad
+                const monthPadded = String(month + 1).padStart(2, '0');
                 const dayPadded = String(day).padStart(2, '0');
                 const dateString = `${year}-${monthPadded}-${dayPadded}`;
 
                 return {
-                    date: dateString, // Use the precisely formatted date string
+                    date: dateString,
                     inTime: '',
                     outTime: '',
                     overTime: 0,
@@ -163,18 +144,16 @@ const AttendanceTracker = () => {
                 };
             });
             setAttendanceData(newMonthDays);
-            setBaseSalary(8500); // Default base salary for new months
+            setBaseSalary(8500);
 
-            // Auto-save this new month structure to allAttendanceRecords using the centralized function
-            // Pass month as 1-indexed for the monthDocId key
+
             updateMonthRecord(selectedEmployee, year, month + 1, newMonthDays, 8500);
         }
-        // Save the last selected employee ID for persistence
         localStorage.setItem('last_selected_employee_id', selectedEmployee);
 
-    }, [selectedEmployee, currentDate, isLoading, allAttendanceRecords]); // Depend on allAttendanceRecords for updates
+    }, [selectedEmployee, currentDate, isLoading, allAttendanceRecords]);
 
-    // --- Save allAttendanceRecords whenever it changes (after initial load) ---
+
     useEffect(() => {
         if (!isLoading) {
             try {
@@ -186,7 +165,7 @@ const AttendanceTracker = () => {
         }
     }, [allAttendanceRecords, isLoading]);
 
-    // --- Save employees whenever it changes (after initial load) ---
+
     useEffect(() => {
         if (!isLoading) {
             try {
@@ -198,7 +177,7 @@ const AttendanceTracker = () => {
         }
     }, [employees, isLoading]);
 
-    // --- Handlers ---
+
     const handleMonthChange = (offset) => {
         setCurrentDate(prevDate => {
             const newDate = new Date(prevDate);
@@ -213,38 +192,35 @@ const AttendanceTracker = () => {
 
         currentRow[field] = value;
 
-        // Apply automatic OT calculation if inTime or outTime changed
+
         if (field === 'inTime' || field === 'outTime') {
             const newOT = calculateOvertime(currentRow.inTime, currentRow.outTime, currentRow.date);
             currentRow.overTime = newOT;
         } else if (field === 'overTime') {
-            // If user manually changes OT, allow it and parse it correctly
+
             currentRow.overTime = value === '' ? '' : parseFloat(value) || 0;
         }
 
         updatedData[index] = currentRow;
         setAttendanceData(updatedData);
 
-        // Instantly update allAttendanceRecords for the current month using the centralized function
+
         const year = currentDate.getFullYear();
-        const month = currentDate.getMonth() + 1; // Pass 1-indexed month for storage key
-        updateMonthRecord(selectedEmployee, year, month, updatedData, baseSalary); // Pass current baseSalary
+        const month = currentDate.getMonth() + 1;
+        updateMonthRecord(selectedEmployee, year, month, updatedData, baseSalary);
     };
 
     const handleBaseSalaryChange = (value) => {
         const newSalary = parseFloat(value) || 0;
         setBaseSalary(newSalary);
 
-        // Also update the baseSalary in allAttendanceRecords for the current month
+
         const year = currentDate.getFullYear();
-        const month = currentDate.getMonth() + 1; // Pass 1-indexed month for storage key
-        updateMonthRecord(selectedEmployee, year, month, attendanceData, newSalary); // Pass current attendanceData
+        const month = currentDate.getMonth() + 1;
+        updateMonthRecord(selectedEmployee, year, month, attendanceData, newSalary);
     };
 
     const handleSave = () => {
-        // With localStorage, changes are automatically saved via useEffects.
-        // This button acts more as a confirmation/trigger for the save effect if you modify the baseSalary field directly.
-        // The attendanceData changes automatically trigger saves in handleDataChange.
         alert('Data saved locally!');
     };
 
@@ -252,12 +228,12 @@ const AttendanceTracker = () => {
         e.preventDefault();
         if (!newEmployeeName.trim()) return;
 
-        const newId = `emp-${Date.now()}`; // Simple unique ID
+        const newId = `emp-${Date.now()}`;
         const newEmployee = { id: newId, name: newEmployeeName.trim() };
 
         setEmployees(prevEmployees => [...prevEmployees, newEmployee]);
         setNewEmployeeName('');
-        setSelectedEmployee(newId); // Select the new employee
+        setSelectedEmployee(newId);
     };
 
     const handleDeleteEmployee = () => {
@@ -278,18 +254,18 @@ const AttendanceTracker = () => {
 
         if (!confirmDelete) return;
 
-        // Remove from employees list
+
         const updatedEmployees = employees.filter(emp => emp.id !== selectedEmployee);
         setEmployees(updatedEmployees);
 
-        // Remove all their attendance records
+
         setAllAttendanceRecords(prevRecords => {
             const newRecords = { ...prevRecords };
             delete newRecords[selectedEmployee];
             return newRecords;
         });
 
-        // Select a new employee or clear selection
+
         if (updatedEmployees.length > 0) {
             setSelectedEmployee(updatedEmployees[0].id);
         } else {
@@ -299,7 +275,7 @@ const AttendanceTracker = () => {
         alert(`Employee "${employeeToDelete.name}" and all associated data deleted successfully!`);
     };
 
-    // --- Render UI ---
+
     return (
         <div className="app-container">
             <Header />
@@ -309,7 +285,7 @@ const AttendanceTracker = () => {
                 setSelectedEmployee={setSelectedEmployee}
                 currentDate={currentDate}
                 handleMonthChange={handleMonthChange}
-                handleSave={handleSave} // Still keep Save button for user confirmation
+                handleSave={handleSave}
                 newEmployeeName={newEmployeeName}
                 setNewEmployeeName={setNewEmployeeName}
                 handleAddEmployee={handleAddEmployee}
@@ -329,7 +305,7 @@ const AttendanceTracker = () => {
                         data={attendanceData}
                         baseSalary={baseSalary}
                         setBaseSalary={handleBaseSalaryChange}
-                        currentDate={currentDate} // Passed currentDate to Summary
+                        currentDate={currentDate}
                     />
                 </div>
             )}
@@ -338,7 +314,7 @@ const AttendanceTracker = () => {
     );
 };
 
-// --- Sub-Components ---
+
 const Header = () => (
     <header className="header-section">
         <h1 className="header-title">Employee Attendance Recorder</h1>
@@ -400,9 +376,9 @@ const Controls = ({ employees, selectedEmployee, setSelectedEmployee, currentDat
             <button
                 onClick={handleDeleteEmployee}
                 className="delete-button"
-                disabled={!selectedEmployee || employees.length <= 1} // Disable if no employee selected or only one employee left
+                disabled={!selectedEmployee || employees.length <= 1}
             >
-                <Trash2 className="lucide-icon" /> {/* Using Trash2 for delete */}
+                <Trash2 className="lucide-icon" />
                 Delete Employee
             </button>
         </div>
@@ -422,13 +398,11 @@ const AttendanceTable = ({ data, onDataChange }) => (
         </thead>
         <tbody>
             {data.map((row, index) => {
-                // Ensure date is parsed correctly to avoid timezone issues for `getDay()`
                 const dayDate = new Date(row.date + 'T00:00:00Z');
                 const isSunday = dayDate.getUTCDay() === 0;
                 return (
                     <tr key={row.date} className={isSunday ? 'sunday-row' : ''}>
                         <td className="date-cell">
-                            {/* Display using a robust date string to avoid local timezone issues for display */}
                             {new Date(row.date + 'T00:00:00Z').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })}
                         </td>
                         <td><EditableCell value={row.inTime} onChange={(val) => onDataChange(index, 'inTime', val)} placeholder="HH:MM" /></td>
@@ -449,8 +423,7 @@ const EditableCell = ({ value, onChange, type = 'text', placeholder = '' }) => (
         onChange={(e) => onChange(e.target.value)}
         className="editable-cell-input"
         placeholder={placeholder}
-        // Ensure that numeric input allows empty string for clearing
-        {...(type === 'number' && { min: "0", step: "0.01" })} // Added step for decimal OT
+        {...(type === 'number' && { min: "0", step: "0.01" })}
     />
 );
 
@@ -460,43 +433,37 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
         let absentDays = 0;
         let totalOvertimeHours = 0;
 
-        // --- Dynamic OT Rate Calculation ---
-        // Get the number of days in the current month based on currentDate
+
         const year = currentDate.getFullYear();
-        const month = currentDate.getMonth(); // 0-indexed
-        // This correctly gets the number of days in the specific month
+        const month = currentDate.getMonth();
         const actualDaysInMonth = new Date(year, month + 1, 0).getDate();
 
-        const STANDARD_HOURS_PER_DAY = 8; // For 8 hours duty as per your requirement
+        const STANDARD_HOURS_PER_DAY = 8;
 
         let dynamicOtRate = 0;
-        if (baseSalary > 0 && actualDaysInMonth > 0) { // Ensure actualDaysInMonth is not zero to prevent division by zero
-            const dailyRate = baseSalary / actualDaysInMonth; // Divide by actual days in the current month
+        if (baseSalary > 0 && actualDaysInMonth > 0) {
+            const dailyRate = baseSalary / actualDaysInMonth;
             const hourlyRate = dailyRate / STANDARD_HOURS_PER_DAY;
             dynamicOtRate = parseFloat(hourlyRate.toFixed(2));
         }
-        // --- End Dynamic OT Rate Calculation ---
+
 
         data.forEach(d => {
-            // Use 'T00:00:00Z' to parse the date as UTC and avoid local timezone effects on getUTCDay()
             const day = new Date(d.date + 'T00:00:00Z').getUTCDay();
-            const isSunday = day === 0; // Check if it's Sunday
+            const isSunday = day === 0;
 
             const hasValidTimeEntry = d.inTime && d.inTime.trim() !== '' && d.inTime.toUpperCase() !== 'H';
             const isHolidayMarked = d.inTime.toUpperCase() === 'H' || d.outTime.toUpperCase() === 'H';
 
-            // --- MODIFICATION START ---
-            // If it's a Sunday, always count as present, unless explicitly marked as 'H' (holiday).
-            // For other days, count as present if there's a valid time entry.
-            // Count as absent if no valid time entry and not marked 'H' and not a Sunday.
-            if (isSunday && !isHolidayMarked) { // Sunday is always present, unless 'H'
+
+            if (isSunday && !isHolidayMarked) {
                 presentDays++;
-            } else if (!isSunday && hasValidTimeEntry) { // Non-Sunday, present if time entered
+            } else if (!isSunday && hasValidTimeEntry) {
                 presentDays++;
-            } else if (!isSunday && !hasValidTimeEntry && !isHolidayMarked) { // Non-Sunday, absent if no time and not 'H'
+            } else if (!isSunday && !hasValidTimeEntry && !isHolidayMarked) {
                 absentDays++;
             }
-            // --- MODIFICATION END ---
+
 
             if (typeof d.overTime === 'number' && d.overTime > 0) {
                 totalOvertimeHours += d.overTime;
@@ -504,11 +471,11 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
         });
 
         const otAmount = totalOvertimeHours * dynamicOtRate;
-        
-        // Calculate deduction for absent days
+
+
         const dailyRateForDeduction = baseSalary > 0 && actualDaysInMonth > 0 ? baseSalary / actualDaysInMonth : 0;
-        const absentDeduction = absentDays * dailyRateForDeduction; // Deduct only for actual absent days (non-Sundays without entries)
-        
+        const absentDeduction = absentDays * dailyRateForDeduction;
+
         const totalSalary = baseSalary + otAmount - absentDeduction;
 
         return {
@@ -517,10 +484,10 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
             totalOT: totalOvertimeHours,
             otAmount: otAmount,
             totalSalary: totalSalary,
-            currentOtRate: dynamicOtRate, // Expose the calculated rate for display
-            absentDeduction: absentDeduction // Expose absent deduction for display
+            currentOtRate: dynamicOtRate,
+            absentDeduction: absentDeduction
         };
-    }, [data, baseSalary, currentDate]); // currentDate is now a dependency for useMemo
+    }, [data, baseSalary, currentDate]);
 
     return (
         <div className="summary-section">
@@ -536,11 +503,9 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
                     step="0.01"
                 />
             </SummaryItem>
-            {/* Display the dynamically calculated OT rate */}
             <SummaryItem label="Hourly OT Rate" value={`₹${summaryStats.currentOtRate.toFixed(2)}`} />
             <SummaryItem label="Total OT (Hours)" value={summaryStats.totalOT.toFixed(2)} />
             <SummaryItem label="Total OT (Amount)" value={`₹${summaryStats.otAmount.toFixed(2)}`} />
-            {/* Display Absent Deduction */}
             <SummaryItem label="Absent Deduction" value={`- ₹${summaryStats.absentDeduction.toFixed(2)}`} />
             <div className="total-payable-container">
                 <SummaryItem label="Total Payable" value={`₹${summaryStats.totalSalary.toFixed(2)}`} isTotal={true} />
@@ -563,3 +528,4 @@ const Footer = () => (
         <p>&copy; 2025 Attendance Tracker. All rights reserved.</p>
     </footer>
 );
+```
