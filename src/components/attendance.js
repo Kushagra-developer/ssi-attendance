@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save, Trash2 } from 'lucide-react';
 
@@ -16,7 +15,6 @@ const timeToMinutes = (timeStr) => {
 const STANDARD_WORK_START_MINUTES = timeToMinutes('09:00'); // 9:00 AM
 const STANDARD_WORK_END_MINUTES = timeToMinutes('17:30'); // 5:30 PM (17:30)
 const STANDARD_WORK_EXPECTED_DURATION_MINUTES = STANDARD_WORK_END_MINUTES - STANDARD_WORK_START_MINUTES; // 8.5 hours = 510 minutes
-
 // --- End Time Constants ---
 
 const calculateWorkDetails = (inTimeStr, outTimeStr, dateStr) => {
@@ -86,7 +84,6 @@ const calculateWorkDetails = (inTimeStr, outTimeStr, dateStr) => {
         lessHours: parseFloat(Math.max(0, lessHours).toFixed(2))
     };
 };
-
 
 export default function App() {
     return (
@@ -245,6 +242,8 @@ const AttendanceTracker = () => {
         } else if (field === 'overTime') {
 
             currentRow.overTime = value === '' ? '' : parseFloat(value) || 0;
+        } else if (field === 'lessHours') { // Added this else if for clarity, but already handled by the generic case
+            currentRow.lessHours = value === '' ? '' : parseFloat(value) || 0;
         }
 
         updatedData[index] = currentRow;
@@ -359,7 +358,6 @@ const AttendanceTracker = () => {
         </div>
     );
 };
-
 
 const Header = () => (
     <header className="header-section">
