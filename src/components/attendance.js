@@ -11,13 +11,9 @@ const timeToMinutes = (timeStr) => {
     return hours * 60 + minutes;
 };
 
-// --- Time Constants based on the unified understanding (9:00 to 17:30 for both OT and Less Hours) ---
-
-// Standard start time for regular work, used for both OT and Less Hours calculations
+// --- Time Constants for OT and Less Hours calculation (9:00 to 17:30 = 8.5 hours) ---
 const STANDARD_WORK_START_MINUTES = timeToMinutes('09:00'); // 9:00 AM
-// Standard end time for regular work, used for both OT and Less Hours calculations
 const STANDARD_WORK_END_MINUTES = timeToMinutes('17:30'); // 5:30 PM (17:30)
-// Expected duration of the standard workday (8.5 hours) for both OT and Less Hours thresholds
 const STANDARD_WORK_EXPECTED_DURATION_MINUTES = STANDARD_WORK_END_MINUTES - STANDARD_WORK_START_MINUTES; // 8.5 hours = 510 minutes
 
 // --- End Time Constants ---
@@ -438,7 +434,7 @@ const AttendanceTable = ({ data, onDataChange }) => (
     <table className="attendance-table">
         <thead>
             <tr>
-                {['Date', 'In Time', 'Out Time', 'Over Time', 'Less Hours', 'Remarks'].map(header => (
+                {['Date', 'In Time', 'Out Time', 'Less Hours', 'Over Time', 'Remarks'].map(header => ( // Changed order for clarity
                     <th key={header} scope="col">
                         {header}
                     </th>
@@ -456,8 +452,8 @@ const AttendanceTable = ({ data, onDataChange }) => (
                         </td>
                         <td><EditableCell value={row.inTime} onChange={(val) => onDataChange(index, 'inTime', val)} placeholder="HH:MM" /></td>
                         <td><EditableCell value={row.outTime} onChange={(val) => onDataChange(index, 'outTime', val)} placeholder="HH:MM" /></td>
-                        <td><EditableCell type="number" value={row.overTime} onChange={(val) => onDataChange(index, 'overTime', val)} /></td>
-                        <td><EditableCell type="number" value={row.lessHours} onChange={(val) => onDataChange(index, 'lessHours', val)} /></td>
+                        <td><EditableCell type="number" value={row.lessHours} onChange={(val) => onDataChange(index, 'lessHours', val)} /></td> {/* Less Hours cell */}
+                        <td><EditableCell type="number" value={row.overTime} onChange={(val) => onDataChange(index, 'overTime', val)} /></td> {/* Over Time cell */}
                         <td><EditableCell value={row.remarks} onChange={(val) => onDataChange(index, 'remarks', val)} /></td>
                     </tr>
                 );
@@ -489,13 +485,13 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
         const month = currentDate.getMonth();
         const actualDaysInMonth = new Date(year, month + 1, 0).getDate();
 
-        // Hourly rate for ALL financial calculations is now based on 8.5 hours (9:00-17:30)
-        const STANDARD_HOURS_FOR_SALARY_CALC = STANDARD_WORK_EXPECTED_DURATION_MINUTES / 60; // 8.5 hours
+        // **CRITICAL CHANGE HERE:** Hourly rate for ALL financial calculations is now based on 8 hours.
+        const STANDARD_HOURS_PER_DAY_FOR_HOURLY_RATE = 8; 
 
         let dynamicRate = 0; // Hourly rate for OT and less hours deduction
-        if (baseSalary > 0 && actualDaysInMonth > 0 && STANDARD_HOURS_FOR_SALARY_CALC > 0) {
+        if (baseSalary > 0 && actualDaysInMonth > 0 && STANDARD_HOURS_PER_DAY_FOR_HOURLY_RATE > 0) {
             const dailyRate = baseSalary / actualDaysInMonth;
-            const hourlyRate = dailyRate / STANDARD_HOURS_FOR_SALARY_CALC;
+            const hourlyRate = dailyRate / STANDARD_HOURS_PER_DAY_FOR_HOURLY_RATE;
             dynamicRate = parseFloat(hourlyRate.toFixed(2));
         }
 
