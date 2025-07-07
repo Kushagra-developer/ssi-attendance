@@ -11,12 +11,16 @@ const timeToMinutes = (timeStr) => {
     return hours * 60 + minutes;
 };
 
-// Standard times for LESS HOURS calculation (9:00 to 16:30 = 7.5 hours)
-const STANDARD_WORK_START_MINUTES = timeToMinutes('09:00');
-const STANDARD_WORK_END_MINUTES = timeToMinutes('16:30'); // 4:30 PM
-const STANDARD_WORK_DURATION_MINUTES = STANDARD_WORK_END_MINUTES - STANDARD_WORK_START_MINUTES; // 7.5 hours = 450 minutes
+// --- Time Constants based on the unified understanding (9:00 to 17:30 for both OT and Less Hours) ---
 
-// The previous 8.5 hours for OT was a misinterpretation, let's stick to the 9:00-16:30 window for regular hours.
+// Standard start time for regular work, used for both OT and Less Hours calculations
+const STANDARD_WORK_START_MINUTES = timeToMinutes('09:00'); // 9:00 AM
+// Standard end time for regular work, used for both OT and Less Hours calculations
+const STANDARD_WORK_END_MINUTES = timeToMinutes('17:30'); // 5:30 PM (17:30)
+// Expected duration of the standard workday (8.5 hours)
+const STANDARD_WORK_DURATION_MINUTES = STANDARD_WORK_END_MINUTES - STANDARD_WORK_START_MINUTES; // 8.5 hours = 510 minutes
+
+// --- End Time Constants ---
 
 const calculateWorkDetails = (inTimeStr, outTimeStr, dateStr) => {
     const dayDate = new Date(dateStr + 'T00:00:00Z');
@@ -37,43 +41,45 @@ const calculateWorkDetails = (inTimeStr, outTimeStr, dateStr) => {
 
     let otHours = 0;
     let lessHours = 0;
-    let workedMinutes = outMinutes - inMinutes;
+    let totalWorkedMinutes = outMinutes - inMinutes;
 
     // Handle cases where outTime is before inTime (e.g., overnight shifts not handled, or user error)
-    if (workedMinutes < 0) {
-        workedMinutes = 0; // Treat as no work done for calculation purposes
+    if (totalWorkedMinutes < 0) {
+        totalWorkedMinutes = 0; // Treat as no work done for calculation purposes
     }
 
-    // On Sundays, all worked minutes are considered overtime
+    // --- Overtime Calculation ---
     if (isSunday) {
-        if (workedMinutes > 0) {
-            otHours = workedMinutes / 60;
+        // On Sundays, all worked minutes are considered overtime
+        if (totalWorkedMinutes > 0) {
+            otHours = totalWorkedMinutes / 60;
         }
     } else {
         // For weekdays:
-
-        // Calculate regular minutes worked within the standard 9:00-16:30 window
-        const effectiveInMinutes = Math.max(inMinutes, STANDARD_WORK_START_MINUTES);
-        const effectiveOutMinutes = Math.min(outMinutes, STANDARD_WORK_END_MINUTES);
-
-        let regularMinutesWorked = 0;
-        if (effectiveOutMinutes > effectiveInMinutes) {
-            regularMinutesWorked = effectiveOutMinutes - effectiveInMinutes;
-        }
-
-        // Calculate Less Hours: If regular minutes worked are less than the standard 7.5 hours
-        if (regularMinutesWorked < STANDARD_WORK_DURATION_MINUTES) {
-            lessHours = (STANDARD_WORK_DURATION_MINUTES - regularMinutesWorked) / 60;
-        }
-
-        // Calculate Overtime:
         // 1. Time worked before 9:00 AM
         if (inMinutes < STANDARD_WORK_START_MINUTES) {
             otHours += (STANDARD_WORK_START_MINUTES - inMinutes) / 60;
         }
-        // 2. Time worked after 4:30 PM (16:30)
+        // 2. Time worked after 5:30 PM (17:30)
         if (outMinutes > STANDARD_WORK_END_MINUTES) {
             otHours += (outMinutes - STANDARD_WORK_END_MINUTES) / 60;
+        }
+    }
+
+    // --- Less Hours Calculation (Weekdays Only, based on 9:00 to 17:30 window) ---
+    if (!isSunday) {
+        // Calculate minutes worked *within* the 9:00 to 17:30 window
+        const effectiveInForRegularHours = Math.max(inMinutes, STANDARD_WORK_START_MINUTES);
+        const effectiveOutForRegularHours = Math.min(outMinutes, STANDARD_WORK_END_MINUTES);
+
+        let actualWorkedWithinStandardWindow = 0;
+        if (effectiveOutForRegularHours > effectiveInForRegularHours) {
+            actualWorkedWithinStandardWindow = effectiveOutForRegularHours - effectiveInForRegularHours;
+        }
+
+        // If the actual time worked within the standard window is less than expected (8.5 hours)
+        if (actualWorkedWithinStandardWindow < STANDARD_WORK_DURATION_MINUTES) {
+            lessHours = (STANDARD_WORK_DURATION_MINUTES - actualWorkedWithinStandardWindow) / 60;
         }
     }
 
@@ -483,14 +489,14 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
         const month = currentDate.getMonth();
         const actualDaysInMonth = new Date(year, month + 1, 0).getDate();
 
-        // Hourly rate for ALL financial calculations is based on 7.5 hours (9:00-16:30)
-        const STANDARD_HOURS_PER_DAY_FOR_SALARY = 7.5;
+        // Hourly rate for ALL financial calculations is now based on 8.5 hours (9:00-17:30)
+        const STANDARD_HOURS_FOR_SALARY_CALC = STANDARD_WORK_DURATION_MINUTES / 60; // 8.5 hours
 
-        let dynamicOtRate = 0;
-        if (baseSalary > 0 && actualDaysInMonth > 0) {
+        let dynamicRate = 0; // Hourly rate for OT and less hours deduction
+        if (baseSalary > 0 && actualDaysInMonth > 0 && STANDARD_HOURS_FOR_SALARY_CALC > 0) {
             const dailyRate = baseSalary / actualDaysInMonth;
-            const hourlyRate = dailyRate / STANDARD_HOURS_PER_DAY_FOR_SALARY;
-            dynamicOtRate = parseFloat(hourlyRate.toFixed(2));
+            const hourlyRate = dailyRate / STANDARD_HOURS_FOR_SALARY_CALC;
+            dynamicRate = parseFloat(hourlyRate.toFixed(2));
         }
 
 
@@ -519,13 +525,13 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
             }
         });
 
-        const otAmount = totalOvertimeHours * dynamicOtRate;
+        const otAmount = totalOvertimeHours * dynamicRate;
 
 
         const dailyRateForDeduction = baseSalary > 0 && actualDaysInMonth > 0 ? baseSalary / actualDaysInMonth : 0;
         const absentDeduction = absentDays * dailyRateForDeduction;
 
-        const lessHoursDeduction = totalLessHours * dynamicOtRate; // Less hours also deducted at this rate
+        const lessHoursDeduction = totalLessHours * dynamicRate;
 
         const totalSalary = baseSalary + otAmount - absentDeduction - lessHoursDeduction;
 
@@ -536,7 +542,7 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
             totalLessHours: totalLessHours,
             otAmount: otAmount,
             totalSalary: totalSalary,
-            currentOtRate: dynamicOtRate,
+            currentRate: dynamicRate,
             absentDeduction: absentDeduction,
             lessHoursDeduction: lessHoursDeduction
         };
@@ -556,7 +562,7 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
                     step="0.01"
                 />
             </SummaryItem>
-            <SummaryItem label="Hourly Rate" value={`₹${summaryStats.currentOtRate.toFixed(2)}`} />
+            <SummaryItem label="Hourly Rate" value={`₹${summaryStats.currentRate.toFixed(2)}`} />
             <SummaryItem label="Total OT (Hours)" value={summaryStats.totalOT.toFixed(2)} />
             <SummaryItem label="Total Less Hours" value={summaryStats.totalLessHours.toFixed(2)} />
             <SummaryItem label="Total OT (Amount)" value={`₹${summaryStats.otAmount.toFixed(2)}`} />
