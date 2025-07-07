@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save, Trash2 } from 'lucide-react';
 
@@ -11,20 +12,10 @@ const timeToMinutes = (timeStr) => {
     return hours * 60 + minutes;
 };
 
-// --- Time Constants for OT and Less Hours calculation ---
-
-// Standard start time for regular work (9:00 AM)
-const STANDARD_WORK_START_MINUTES = timeToMinutes('09:00');
-// Standard end time for regular work (5:30 PM = 17:30)
-const STANDARD_WORK_END_MINUTES = timeToMinutes('17:30');
-
-// This is the DURATION for which Overtime is NOT calculated if total hours are less than or equal to this.
-// And it's the duration threshold for calculating "Less Hours"
-const OT_CALC_THRESHOLD_MINUTES = STANDARD_WORK_END_MINUTES - STANDARD_WORK_START_MINUTES; // 8.5 hours = 510 minutes
-
-// **NEW/UPDATED**: This is the DURATION for which "Less Hours" are checked against.
-// And it's the basis for the hourly rate calculation.
-const LESS_HOURS_AND_SALARY_BASIS_MINUTES = 8 * 60; // 8 hours = 480 minutes
+// --- Time Constants for OT and Less Hours calculation (9:00 to 17:30 = 8.5 hours) ---
+const STANDARD_WORK_START_MINUTES = timeToMinutes('09:00'); // 9:00 AM
+const STANDARD_WORK_END_MINUTES = timeToMinutes('17:30'); // 5:30 PM (17:30)
+const STANDARD_WORK_EXPECTED_DURATION_MINUTES = STANDARD_WORK_END_MINUTES - STANDARD_WORK_START_MINUTES; // 8.5 hours = 510 minutes
 
 // --- End Time Constants ---
 
@@ -62,8 +53,8 @@ const calculateWorkDetails = (inTimeStr, outTimeStr, dateStr) => {
         }
     } else {
         // For weekdays:
-        // Overtime is calculated only if total actual worked minutes exceed the 8.5-hour standard workday
-        if (totalActualWorkedMinutes > OT_CALC_THRESHOLD_MINUTES) {
+        // Calculate potential overtime if total actual worked minutes exceed 8.5 hours
+        if (totalActualWorkedMinutes > STANDARD_WORK_EXPECTED_DURATION_MINUTES) {
             let earlyOtMinutes = 0;
             if (inMinutes < STANDARD_WORK_START_MINUTES) {
                 earlyOtMinutes = STANDARD_WORK_START_MINUTES - inMinutes;
@@ -75,17 +66,17 @@ const calculateWorkDetails = (inTimeStr, outTimeStr, dateStr) => {
             }
 
             // The total overtime is the sum of early and late OT,
-            // but capped by the amount that totalActualWorkedMinutes exceeds 8.5 hours
-            const excessMinutesBeyondStandardWindow = totalActualWorkedMinutes - OT_CALC_THRESHOLD_MINUTES;
-            otHours = Math.min((earlyOtMinutes + lateOtMinutes), excessMinutesBeyondStandardWindow) / 60;
+            // but capped by the amount that totalActualWorkedMinutes exceeds STANDARD_WORK_EXPECTED_DURATION_MINUTES
+            const excessMinutes = totalActualWorkedMinutes - STANDARD_WORK_EXPECTED_DURATION_MINUTES;
+            otHours = Math.min((earlyOtMinutes + lateOtMinutes), excessMinutes) / 60;
         }
     }
 
     // --- Less Hours Calculation (Weekdays Only) ---
     if (!isSunday) {
-        // Less hours are calculated only if total actual worked minutes are less than the 8-hour expected basis
-        if (totalActualWorkedMinutes < LESS_HOURS_AND_SALARY_BASIS_MINUTES) {
-            lessHours = (LESS_HOURS_AND_SALARY_BASIS_MINUTES - totalActualWorkedMinutes) / 60;
+        // Calculate less hours only if total actual worked minutes are less than 8.5 hours
+        if (totalActualWorkedMinutes < STANDARD_WORK_EXPECTED_DURATION_MINUTES) {
+            lessHours = (STANDARD_WORK_EXPECTED_DURATION_MINUTES - totalActualWorkedMinutes) / 60;
         }
     }
 
@@ -444,7 +435,7 @@ const AttendanceTable = ({ data, onDataChange }) => (
     <table className="attendance-table">
         <thead>
             <tr>
-                {['Date', 'In Time', 'Out Time', 'Less Hours', 'Over Time', 'Remarks'].map(header => (
+                {['Date', 'In Time', 'Out Time', 'Less Hours', 'Over Time', 'Remarks'].map(header => ( // Changed order for clarity
                     <th key={header} scope="col">
                         {header}
                     </th>
@@ -462,8 +453,8 @@ const AttendanceTable = ({ data, onDataChange }) => (
                         </td>
                         <td><EditableCell value={row.inTime} onChange={(val) => onDataChange(index, 'inTime', val)} placeholder="HH:MM" /></td>
                         <td><EditableCell value={row.outTime} onChange={(val) => onDataChange(index, 'outTime', val)} placeholder="HH:MM" /></td>
-                        <td><EditableCell type="number" value={row.lessHours} onChange={(val) => onDataChange(index, 'lessHours', val)} /></td>
-                        <td><EditableCell type="number" value={row.overTime} onChange={(val) => onDataChange(index, 'overTime', val)} /></td>
+                        <td><EditableCell type="number" value={row.lessHours} onChange={(val) => onDataChange(index, 'lessHours', val)} /></td> {/* Less Hours cell */}
+                        <td><EditableCell type="number" value={row.overTime} onChange={(val) => onDataChange(index, 'overTime', val)} /></td> {/* Over Time cell */}
                         <td><EditableCell value={row.remarks} onChange={(val) => onDataChange(index, 'remarks', val)} /></td>
                     </tr>
                 );
@@ -495,8 +486,8 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
         const month = currentDate.getMonth();
         const actualDaysInMonth = new Date(year, month + 1, 0).getDate();
 
-        // Hourly rate for ALL financial calculations is based on 8 hours.
-        const STANDARD_HOURS_PER_DAY_FOR_HOURLY_RATE = 8;
+        // **CRITICAL CHANGE HERE:** Hourly rate for ALL financial calculations is now based on 8 hours.
+        const STANDARD_HOURS_PER_DAY_FOR_HOURLY_RATE = 8; 
 
         let dynamicRate = 0; // Hourly rate for OT and less hours deduction
         if (baseSalary > 0 && actualDaysInMonth > 0 && STANDARD_HOURS_PER_DAY_FOR_HOURLY_RATE > 0) {
