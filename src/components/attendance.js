@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save, Trash2 } from 'lucide-react';
 
@@ -13,8 +12,8 @@ const timeToMinutes = (timeStr) => {
 };
 
 const STANDARD_START_MINUTES = timeToMinutes('09:00');
-const STANDARD_END_MINUTES = timeToMinutes('17:30');
-const STANDARD_WORK_MINUTES = STANDARD_END_MINUTES - STANDARD_START_MINUTES; // 8.5 hours * 60 = 510 minutes
+const STANDARD_END_MINUTES = timeToMinutes('17:00'); // Changed from 17:30 to 17:00 for an 8-hour day
+const STANDARD_WORK_MINUTES = STANDARD_END_MINUTES - STANDARD_START_MINUTES; // 8 hours * 60 = 480 minutes
 
 const calculateWorkDetails = (inTimeStr, outTimeStr, dateStr) => {
     const dayDate = new Date(dateStr + 'T00:00:00Z');
@@ -452,14 +451,14 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
         let presentDays = 0;
         let absentDays = 0;
         let totalOvertimeHours = 0;
-        let totalLessHours = 0; // New state for less hours
+        let totalLessHours = 0; 
 
 
         const year = currentDate.getFullYear();
         const month = currentDate.getMonth();
         const actualDaysInMonth = new Date(year, month + 1, 0).getDate();
 
-        const STANDARD_HOURS_PER_DAY = 8.0; // Standard work hours per day
+        const STANDARD_HOURS_PER_DAY = 8.0; // Changed to 8.0
 
         let dynamicOtRate = 0;
         if (baseSalary > 0 && actualDaysInMonth > 0) {
@@ -489,7 +488,7 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
             if (typeof d.overTime === 'number' && d.overTime > 0) {
                 totalOvertimeHours += d.overTime;
             }
-            if (typeof d.lessHours === 'number' && d.lessHours > 0) { // Sum up less hours
+            if (typeof d.lessHours === 'number' && d.lessHours > 0) { 
                 totalLessHours += d.lessHours;
             }
         });
@@ -500,7 +499,6 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
         const dailyRateForDeduction = baseSalary > 0 && actualDaysInMonth > 0 ? baseSalary / actualDaysInMonth : 0;
         const absentDeduction = absentDays * dailyRateForDeduction;
         
-        // Calculate deduction for less hours
         const lessHoursDeduction = totalLessHours * dynamicOtRate;
 
         const totalSalary = baseSalary + otAmount - absentDeduction - lessHoursDeduction;
@@ -509,12 +507,12 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
             present: presentDays,
             absent: absentDays,
             totalOT: totalOvertimeHours,
-            totalLessHours: totalLessHours, // Pass less hours to the return object
+            totalLessHours: totalLessHours, 
             otAmount: otAmount,
             totalSalary: totalSalary,
             currentOtRate: dynamicOtRate,
             absentDeduction: absentDeduction,
-            lessHoursDeduction: lessHoursDeduction // Pass less hours deduction
+            lessHoursDeduction: lessHoursDeduction
         };
     }, [data, baseSalary, currentDate]);
 
@@ -559,4 +557,3 @@ const Footer = () => (
         <p>&copy; 2025 Attendance Tracker. All rights reserved.</p>
     </footer>
 );
-
