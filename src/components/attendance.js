@@ -11,9 +11,12 @@ const timeToMinutes = (timeStr) => {
     return hours * 60 + minutes;
 };
 
+// Standard times for OVERTIME calculation (8.5 hours)
 const STANDARD_START_MINUTES = timeToMinutes('09:00');
-const STANDARD_END_MINUTES = timeToMinutes('17:00'); // Changed from 17:30 to 17:00 for an 8-hour day
-const STANDARD_WORK_MINUTES = STANDARD_END_MINUTES - STANDARD_START_MINUTES; // 8 hours * 60 = 480 minutes
+const STANDARD_END_MINUTES = timeToMinutes('17:30'); 
+
+// Standard minutes for LESS HOURS calculation (8 hours)
+const EIGHT_HOUR_WORK_MINUTES = 8 * 60; // 480 minutes
 
 const calculateWorkDetails = (inTimeStr, outTimeStr, dateStr) => {
     const dayDate = new Date(dateStr + 'T00:00:00Z');
@@ -33,12 +36,14 @@ const calculateWorkDetails = (inTimeStr, outTimeStr, dateStr) => {
     let lessHours = 0;
     const workedMinutes = outMinutes - inMinutes;
 
+    // Calculate Less Hours based on an 8-hour day
     if (!isSunday) {
-        if (workedMinutes < STANDARD_WORK_MINUTES) {
-            lessHours = (STANDARD_WORK_MINUTES - workedMinutes) / 60;
+        if (workedMinutes < EIGHT_HOUR_WORK_MINUTES) {
+            lessHours = (EIGHT_HOUR_WORK_MINUTES - workedMinutes) / 60;
         }
     }
 
+    // Calculate Overtime based on the 8.5-hour schedule (09:00 - 17:30)
     if (inMinutes < STANDARD_START_MINUTES) {
         otHours += (STANDARD_START_MINUTES - inMinutes) / 60;
     }
@@ -458,7 +463,8 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
         const month = currentDate.getMonth();
         const actualDaysInMonth = new Date(year, month + 1, 0).getDate();
 
-        const STANDARD_HOURS_PER_DAY = 8.0; // Changed to 8.0
+        // Hourly rate for ALL financial calculations is based on 8.5 hours
+        const STANDARD_HOURS_PER_DAY = 8.5; 
 
         let dynamicOtRate = 0;
         if (baseSalary > 0 && actualDaysInMonth > 0) {
