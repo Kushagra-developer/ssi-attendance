@@ -1,17 +1,4 @@
-Of course, here's the updated code that includes the logic to calculate "less hours" if the work duration is less than 8.5 hours and adjusts the salary calculation accordingly.
 
-### Key Changes:
-
-1.  **`calculateWorkDetails` Function:** The `calculateOvertime` function has been renamed to `calculateWorkDetails` to better reflect its new capabilities. It now returns an object containing both `overTime` and `lessHours`.
-2.  **`useMemo` in `Summary` Component:** The primary logic adjustments are within the `Summary` component's `useMemo` hook.
-      * It now tracks `totalLessHours`.
-      * It calculates `lessHoursDeduction` based on the hourly rate.
-      * The `totalSalary` calculation now also subtracts the `lessHoursDeduction`.
-3.  **UI Updates in `Summary` Component:** New `SummaryItem` components have been added to display the total less hours and the corresponding deduction.
-
-Here is the complete, updated code:
-
-```jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save, Trash2 } from 'lucide-react';
 
@@ -573,4 +560,3 @@ const Footer = () => (
     </footer>
 );
 
-```
