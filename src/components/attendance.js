@@ -17,8 +17,8 @@ const timeToMinutes = (timeStr) => {
 const STANDARD_WORK_START_MINUTES = timeToMinutes('09:00'); // 9:00 AM
 // Standard end time for regular work, used for both OT and Less Hours calculations
 const STANDARD_WORK_END_MINUTES = timeToMinutes('17:30'); // 5:30 PM (17:30)
-// Expected duration of the standard workday (8.5 hours)
-const STANDARD_WORK_DURATION_MINUTES = STANDARD_WORK_END_MINUTES - STANDARD_WORK_START_MINUTES; // 8.5 hours = 510 minutes
+// Expected duration of the standard workday (8.5 hours) for both OT and Less Hours thresholds
+const STANDARD_WORK_EXPECTED_DURATION_MINUTES = STANDARD_WORK_END_MINUTES - STANDARD_WORK_START_MINUTES; // 8.5 hours = 510 minutes
 
 // --- End Time Constants ---
 
@@ -41,45 +41,45 @@ const calculateWorkDetails = (inTimeStr, outTimeStr, dateStr) => {
 
     let otHours = 0;
     let lessHours = 0;
-    let totalWorkedMinutes = outMinutes - inMinutes;
+    let totalActualWorkedMinutes = outMinutes - inMinutes;
 
     // Handle cases where outTime is before inTime (e.g., overnight shifts not handled, or user error)
-    if (totalWorkedMinutes < 0) {
-        totalWorkedMinutes = 0; // Treat as no work done for calculation purposes
+    if (totalActualWorkedMinutes < 0) {
+        totalActualWorkedMinutes = 0; // Treat as no work done for calculation purposes
     }
 
     // --- Overtime Calculation ---
     if (isSunday) {
         // On Sundays, all worked minutes are considered overtime
-        if (totalWorkedMinutes > 0) {
-            otHours = totalWorkedMinutes / 60;
+        if (totalActualWorkedMinutes > 0) {
+            otHours = totalActualWorkedMinutes / 60;
         }
     } else {
         // For weekdays:
-        // 1. Time worked before 9:00 AM
-        if (inMinutes < STANDARD_WORK_START_MINUTES) {
-            otHours += (STANDARD_WORK_START_MINUTES - inMinutes) / 60;
-        }
-        // 2. Time worked after 5:30 PM (17:30)
-        if (outMinutes > STANDARD_WORK_END_MINUTES) {
-            otHours += (outMinutes - STANDARD_WORK_END_MINUTES) / 60;
+        // Calculate potential overtime if total actual worked minutes exceed 8.5 hours
+        if (totalActualWorkedMinutes > STANDARD_WORK_EXPECTED_DURATION_MINUTES) {
+            let earlyOtMinutes = 0;
+            if (inMinutes < STANDARD_WORK_START_MINUTES) {
+                earlyOtMinutes = STANDARD_WORK_START_MINUTES - inMinutes;
+            }
+
+            let lateOtMinutes = 0;
+            if (outMinutes > STANDARD_WORK_END_MINUTES) {
+                lateOtMinutes = outMinutes - STANDARD_WORK_END_MINUTES;
+            }
+
+            // The total overtime is the sum of early and late OT,
+            // but capped by the amount that totalActualWorkedMinutes exceeds STANDARD_WORK_EXPECTED_DURATION_MINUTES
+            const excessMinutes = totalActualWorkedMinutes - STANDARD_WORK_EXPECTED_DURATION_MINUTES;
+            otHours = Math.min((earlyOtMinutes + lateOtMinutes), excessMinutes) / 60;
         }
     }
 
-    // --- Less Hours Calculation (Weekdays Only, based on 9:00 to 17:30 window) ---
+    // --- Less Hours Calculation (Weekdays Only) ---
     if (!isSunday) {
-        // Calculate minutes worked *within* the 9:00 to 17:30 window
-        const effectiveInForRegularHours = Math.max(inMinutes, STANDARD_WORK_START_MINUTES);
-        const effectiveOutForRegularHours = Math.min(outMinutes, STANDARD_WORK_END_MINUTES);
-
-        let actualWorkedWithinStandardWindow = 0;
-        if (effectiveOutForRegularHours > effectiveInForRegularHours) {
-            actualWorkedWithinStandardWindow = effectiveOutForRegularHours - effectiveInForRegularHours;
-        }
-
-        // If the actual time worked within the standard window is less than expected (8.5 hours)
-        if (actualWorkedWithinStandardWindow < STANDARD_WORK_DURATION_MINUTES) {
-            lessHours = (STANDARD_WORK_DURATION_MINUTES - actualWorkedWithinStandardWindow) / 60;
+        // Calculate less hours only if total actual worked minutes are less than 8.5 hours
+        if (totalActualWorkedMinutes < STANDARD_WORK_EXPECTED_DURATION_MINUTES) {
+            lessHours = (STANDARD_WORK_EXPECTED_DURATION_MINUTES - totalActualWorkedMinutes) / 60;
         }
     }
 
@@ -490,7 +490,7 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
         const actualDaysInMonth = new Date(year, month + 1, 0).getDate();
 
         // Hourly rate for ALL financial calculations is now based on 8.5 hours (9:00-17:30)
-        const STANDARD_HOURS_FOR_SALARY_CALC = STANDARD_WORK_DURATION_MINUTES / 60; // 8.5 hours
+        const STANDARD_HOURS_FOR_SALARY_CALC = STANDARD_WORK_EXPECTED_DURATION_MINUTES / 60; // 8.5 hours
 
         let dynamicRate = 0; // Hourly rate for OT and less hours deduction
         if (baseSalary > 0 && actualDaysInMonth > 0 && STANDARD_HOURS_FOR_SALARY_CALC > 0) {
