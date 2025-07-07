@@ -1,3 +1,17 @@
+Of course, here's the updated code that includes the logic to calculate "less hours" if the work duration is less than 8.5 hours and adjusts the salary calculation accordingly.
+
+### Key Changes:
+
+1.  **`calculateWorkDetails` Function:** The `calculateOvertime` function has been renamed to `calculateWorkDetails` to better reflect its new capabilities. It now returns an object containing both `overTime` and `lessHours`.
+2.  **`useMemo` in `Summary` Component:** The primary logic adjustments are within the `Summary` component's `useMemo` hook.
+      * It now tracks `totalLessHours`.
+      * It calculates `lessHoursDeduction` based on the hourly rate.
+      * The `totalSalary` calculation now also subtracts the `lessHoursDeduction`.
+3.  **UI Updates in `Summary` Component:** New `SummaryItem` components have been added to display the total less hours and the corresponding deduction.
+
+Here is the complete, updated code:
+
+```jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save, Trash2 } from 'lucide-react';
 
@@ -13,23 +27,31 @@ const timeToMinutes = (timeStr) => {
 
 const STANDARD_START_MINUTES = timeToMinutes('09:00');
 const STANDARD_END_MINUTES = timeToMinutes('17:30');
+const STANDARD_WORK_MINUTES = STANDARD_END_MINUTES - STANDARD_START_MINUTES; // 8.5 hours * 60 = 510 minutes
 
-const calculateOvertime = (inTimeStr, outTimeStr, dateStr) => {
+const calculateWorkDetails = (inTimeStr, outTimeStr, dateStr) => {
     const dayDate = new Date(dateStr + 'T00:00:00Z');
     const isSunday = dayDate.getUTCDay() === 0;
     if (inTimeStr.toUpperCase() === 'H' || outTimeStr.toUpperCase() === 'H') {
-        return 0;
+        return { overTime: 0, lessHours: 0 };
     }
 
     const inMinutes = timeToMinutes(inTimeStr);
     const outMinutes = timeToMinutes(outTimeStr);
 
     if (isNaN(inMinutes) || isNaN(outMinutes)) {
-        return 0;
+        return { overTime: 0, lessHours: 0 };
     }
 
     let otHours = 0;
+    let lessHours = 0;
+    const workedMinutes = outMinutes - inMinutes;
 
+    if (!isSunday) {
+        if (workedMinutes < STANDARD_WORK_MINUTES) {
+            lessHours = (STANDARD_WORK_MINUTES - workedMinutes) / 60;
+        }
+    }
 
     if (inMinutes < STANDARD_START_MINUTES) {
         otHours += (STANDARD_START_MINUTES - inMinutes) / 60;
@@ -38,8 +60,17 @@ const calculateOvertime = (inTimeStr, outTimeStr, dateStr) => {
     if (outMinutes > STANDARD_END_MINUTES) {
         otHours += (outMinutes - STANDARD_END_MINUTES) / 60;
     }
+    
+    // On Sundays, any work is considered overtime
+    if (isSunday && workedMinutes > 0) {
+        otHours += workedMinutes / 60;
+    }
 
-    return parseFloat(otHours.toFixed(2));
+
+    return {
+        overTime: parseFloat(otHours.toFixed(2)),
+        lessHours: parseFloat(lessHours.toFixed(2))
+    };
 };
 
 
@@ -139,6 +170,7 @@ const AttendanceTracker = () => {
                     inTime: '',
                     outTime: '',
                     overTime: 0,
+                    lessHours: 0, // Initialize lessHours
                     remarks: ''
                 };
             });
@@ -150,7 +182,7 @@ const AttendanceTracker = () => {
         }
         localStorage.setItem('last_selected_employee_id', selectedEmployee);
 
-    }, [selectedEmployee, currentDate, isLoading, allAttendanceRecords]);
+    }, [selectedEmployee, currentDate, isLoading]);
 
 
     useEffect(() => {
@@ -193,8 +225,9 @@ const AttendanceTracker = () => {
 
 
         if (field === 'inTime' || field === 'outTime') {
-            const newOT = calculateOvertime(currentRow.inTime, currentRow.outTime, currentRow.date);
-            currentRow.overTime = newOT;
+            const { overTime, lessHours } = calculateWorkDetails(currentRow.inTime, currentRow.outTime, currentRow.date);
+            currentRow.overTime = overTime;
+            currentRow.lessHours = lessHours;
         } else if (field === 'overTime') {
 
             currentRow.overTime = value === '' ? '' : parseFloat(value) || 0;
@@ -388,7 +421,7 @@ const AttendanceTable = ({ data, onDataChange }) => (
     <table className="attendance-table">
         <thead>
             <tr>
-                {['Date', 'In Time', 'Out Time', 'Over Time', 'Remarks'].map(header => (
+                {['Date', 'In Time', 'Out Time', 'Over Time', 'Less Hours', 'Remarks'].map(header => (
                     <th key={header} scope="col">
                         {header}
                     </th>
@@ -407,6 +440,7 @@ const AttendanceTable = ({ data, onDataChange }) => (
                         <td><EditableCell value={row.inTime} onChange={(val) => onDataChange(index, 'inTime', val)} placeholder="HH:MM" /></td>
                         <td><EditableCell value={row.outTime} onChange={(val) => onDataChange(index, 'outTime', val)} placeholder="HH:MM" /></td>
                         <td><EditableCell type="number" value={row.overTime} onChange={(val) => onDataChange(index, 'overTime', val)} /></td>
+                        <td><EditableCell type="number" value={row.lessHours} onChange={(val) => onDataChange(index, 'lessHours', val)} /></td>
                         <td><EditableCell value={row.remarks} onChange={(val) => onDataChange(index, 'remarks', val)} /></td>
                     </tr>
                 );
@@ -431,13 +465,14 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
         let presentDays = 0;
         let absentDays = 0;
         let totalOvertimeHours = 0;
+        let totalLessHours = 0; // New state for less hours
 
 
         const year = currentDate.getFullYear();
         const month = currentDate.getMonth();
         const actualDaysInMonth = new Date(year, month + 1, 0).getDate();
 
-        const STANDARD_HOURS_PER_DAY = 8;
+        const STANDARD_HOURS_PER_DAY = 8.5; // Standard work hours per day
 
         let dynamicOtRate = 0;
         if (baseSalary > 0 && actualDaysInMonth > 0) {
@@ -467,6 +502,9 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
             if (typeof d.overTime === 'number' && d.overTime > 0) {
                 totalOvertimeHours += d.overTime;
             }
+            if (typeof d.lessHours === 'number' && d.lessHours > 0) { // Sum up less hours
+                totalLessHours += d.lessHours;
+            }
         });
 
         const otAmount = totalOvertimeHours * dynamicOtRate;
@@ -474,17 +512,22 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
 
         const dailyRateForDeduction = baseSalary > 0 && actualDaysInMonth > 0 ? baseSalary / actualDaysInMonth : 0;
         const absentDeduction = absentDays * dailyRateForDeduction;
+        
+        // Calculate deduction for less hours
+        const lessHoursDeduction = totalLessHours * dynamicOtRate;
 
-        const totalSalary = baseSalary + otAmount - absentDeduction;
+        const totalSalary = baseSalary + otAmount - absentDeduction - lessHoursDeduction;
 
         return {
             present: presentDays,
             absent: absentDays,
             totalOT: totalOvertimeHours,
+            totalLessHours: totalLessHours, // Pass less hours to the return object
             otAmount: otAmount,
             totalSalary: totalSalary,
             currentOtRate: dynamicOtRate,
-            absentDeduction: absentDeduction
+            absentDeduction: absentDeduction,
+            lessHoursDeduction: lessHoursDeduction // Pass less hours deduction
         };
     }, [data, baseSalary, currentDate]);
 
@@ -502,10 +545,12 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
                     step="0.01"
                 />
             </SummaryItem>
-            <SummaryItem label="Hourly OT Rate" value={`₹${summaryStats.currentOtRate.toFixed(2)}`} />
+            <SummaryItem label="Hourly Rate" value={`₹${summaryStats.currentOtRate.toFixed(2)}`} />
             <SummaryItem label="Total OT (Hours)" value={summaryStats.totalOT.toFixed(2)} />
+            <SummaryItem label="Total Less Hours" value={summaryStats.totalLessHours.toFixed(2)} />
             <SummaryItem label="Total OT (Amount)" value={`₹${summaryStats.otAmount.toFixed(2)}`} />
             <SummaryItem label="Absent Deduction" value={`- ₹${summaryStats.absentDeduction.toFixed(2)}`} />
+            <SummaryItem label="Less Hours Deduction" value={`- ₹${summaryStats.lessHoursDeduction.toFixed(2)}`} />
             <div className="total-payable-container">
                 <SummaryItem label="Total Payable" value={`₹${summaryStats.totalSalary.toFixed(2)}`} isTotal={true} />
             </div>
@@ -528,3 +573,4 @@ const Footer = () => (
     </footer>
 );
 
+```
