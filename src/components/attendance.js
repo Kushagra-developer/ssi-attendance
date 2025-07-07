@@ -459,7 +459,7 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
         const month = currentDate.getMonth();
         const actualDaysInMonth = new Date(year, month + 1, 0).getDate();
 
-        const STANDARD_HOURS_PER_DAY = 8.5; // Standard work hours per day
+        const STANDARD_HOURS_PER_DAY = 8.0; // Standard work hours per day
 
         let dynamicOtRate = 0;
         if (baseSalary > 0 && actualDaysInMonth > 0) {
