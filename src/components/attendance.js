@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, ArrowRight, Calendar, User, Plus, Save, Trash2 } from 'lucide-react';
 
@@ -11,9 +12,10 @@ const timeToMinutes = (timeStr) => {
     return hours * 60 + minutes;
 };
 
-// Standard times for OVERTIME calculation (8.5 hours)
+// Standard times for OVERTIME calculation
 const STANDARD_START_MINUTES = timeToMinutes('09:00');
-const STANDARD_END_MINUTES = timeToMinutes('17:30'); 
+const STANDARD_END_MINUTES = timeToMinutes('17:30'); // 5:30 PM
+const STANDARD_WORK_MINUTES = STANDARD_END_MINUTES - STANDARD_START_MINUTES; // 8.5 hours = 510 minutes
 
 // Standard minutes for LESS HOURS calculation (8 hours)
 const EIGHT_HOUR_WORK_MINUTES = 8 * 60; // 480 minutes
@@ -21,6 +23,8 @@ const EIGHT_HOUR_WORK_MINUTES = 8 * 60; // 480 minutes
 const calculateWorkDetails = (inTimeStr, outTimeStr, dateStr) => {
     const dayDate = new Date(dateStr + 'T00:00:00Z');
     const isSunday = dayDate.getUTCDay() === 0;
+
+    // If marked as holiday ('H'), no overtime or less hours
     if (inTimeStr.toUpperCase() === 'H' || outTimeStr.toUpperCase() === 'H') {
         return { overTime: 0, lessHours: 0 };
     }
@@ -28,6 +32,7 @@ const calculateWorkDetails = (inTimeStr, outTimeStr, dateStr) => {
     const inMinutes = timeToMinutes(inTimeStr);
     const outMinutes = timeToMinutes(outTimeStr);
 
+    // If times are invalid, no overtime or less hours
     if (isNaN(inMinutes) || isNaN(outMinutes)) {
         return { overTime: 0, lessHours: 0 };
     }
@@ -36,34 +41,90 @@ const calculateWorkDetails = (inTimeStr, outTimeStr, dateStr) => {
     let lessHours = 0;
     const workedMinutes = outMinutes - inMinutes;
 
-    // Calculate Less Hours based on an 8-hour day
-    if (!isSunday) {
+    // Handle negative workedMinutes (e.g., clocking out before clocking in, or overnight shift not fully handled)
+    if (workedMinutes < 0) {
+        // For simplicity, we'll treat negative worked minutes as 0, or you might want to flag an error
+        return { overTime: 0, lessHours: 0 };
+    }
+
+    // On Sundays, all worked minutes are considered overtime
+    if (isSunday) {
+        if (workedMinutes > 0) {
+            otHours = workedMinutes / 60;
+        }
+    } else {
+        // For weekdays:
+
+        // Calculate Less Hours based on an 8-hour day
         if (workedMinutes < EIGHT_HOUR_WORK_MINUTES) {
             lessHours = (EIGHT_HOUR_WORK_MINUTES - workedMinutes) / 60;
         }
+
+        // Calculate Overtime based on the 8.5-hour standard workday (09:00 to 17:30)
+        // Overtime for hours worked before 9:00 AM
+        if (inMinutes < STANDARD_START_MINUTES) {
+            otHours += (STANDARD_START_MINUTES - inMinutes) / 60;
+        }
+        // Overtime for hours worked after 5:30 PM
+        if (outMinutes > STANDARD_END_MINUTES) {
+            otHours += (outMinutes - STANDARD_END_MINUTES) / 60;
+        }
+
+        // IMPORTANT CORRECTION: Overtime if total worked hours exceed standard 8.5 hours within the window
+        // This accounts for cases like 8:30-17:30 (9 hours) where 0.5 hours are still overtime,
+        // or 09:00-18:00 (9 hours) where 0.5 hours are also already accounted for above.
+        // We need to ensure we don't double count if the "before/after" rules cover it.
+        // The most robust way is to cap the regular hours.
+        const regularHoursWorked = Math.min(Math.max(0, outMinutes - Math.max(inMinutes, STANDARD_START_MINUTES)), STANDARD_WORK_MINUTES);
+        const totalOTFromDuration = (workedMinutes - regularHoursWorked) / 60;
+
+        // Add to otHours only if it's new overtime not covered by early start/late end already
+        // This logic is tricky. Let's simplify:
+        // Overtime is total minutes worked MINUS 8.5 hours, PLUS any time outside the standard window.
+        // A simpler approach for the specified rules:
+        // 1. Any time before 9:00 AM is OT.
+        // 2. Any time after 5:30 PM is OT.
+        // 3. If the *actual time worked between in and out* exceeds 8.5 hours, the excess is OT.
+        // The current `otHours` handles 1 and 2. Let's add 3 carefully.
+
+        const totalScheduledWorkedMinutes = Math.min(STANDARD_END_MINUTES, outMinutes) - Math.max(STANDARD_START_MINUTES, inMinutes);
+        if (totalScheduledWorkedMinutes > STANDARD_WORK_MINUTES) {
+            // This case handles working extra hours *within* or crossing the window
+            // If in at 9:00 and out at 18:00, the 'outMinutes > STANDARD_END_MINUTES' already adds 30 mins OT.
+            // If in at 8:30 and out at 17:30, the 'inMinutes < STANDARD_START_MINUTES' already adds 30 mins OT.
+            // The challenge is if someone worked, say, 09:00 to 18:00, but their standard was only 8 hours, and they are paid OT over 8.5 hours.
+            // Given the rule "9:00 to 5:30 only" as the "constraint for overtime", it implies:
+            // - If you work 08:00 to 17:30 (9.5 hrs), 08:00-09:00 (1hr) is OT. Remaining 8.5 hrs are standard.
+            // - If you work 09:00 to 18:30 (9.5 hrs), 17:30-18:30 (1hr) is OT. Remaining 8.5 hrs are standard.
+            // - If you work 08:00 to 18:30 (10.5 hrs), 08:00-09:00 (1hr) is OT, 17:30-18:30 (1hr) is OT. Total 2 hours OT. Remaining 8.5 hrs are standard.
+
+            // The issue is if the *total worked duration* exceeds 8.5 hours *and* it falls within the standard window.
+            // Example: If standard day is 8 hours, and I work 9 hours *within* 9:00-17:30, where does the 1 hour OT come from?
+            // Your rule "9:00 to 5:30 only" means the *regular* hours are from 9:00 to 5:30 (8.5 hours).
+            // So, any work *beyond* these 8.5 hours of *actual presence* should be OT.
+
+            // Let's re-think based on the most direct interpretation of "9:00 to 5:30 only" for overtime.
+            // It suggests that the **scheduled 8.5 hours are not overtime**, and anything outside is.
+            // However, your consistent feedback suggests that if the *total duration worked* is, for example, 9 hours,
+            // and the standard is 8.5 hours, then 0.5 hours should be OT, even if it's within the standard window.
+
+            // NEW LOGIC FOR WEEKDAY OVERTIME (Revised based on "total worked hours > 8.5 hours")
+            // This is the most common way companies calculate overtime beyond a threshold.
+            const standardWorkdayDurationMinutes = STANDARD_WORK_MINUTES; // 8.5 hours
+            if (workedMinutes > standardWorkdayDurationMinutes) {
+                // Add the excess over 8.5 hours as overtime
+                otHours += (workedMinutes - standardWorkdayDurationMinutes) / 60;
+            }
+        }
     }
 
-    // Calculate Overtime based on the 8.5-hour schedule (09:00 - 17:30)
-    if (inMinutes < STANDARD_START_MINUTES) {
-        otHours += (STANDARD_START_MINUTES - inMinutes) / 60;
-    }
 
-    if (outMinutes > STANDARD_END_MINUTES) {
-        otHours += (outMinutes - STANDARD_END_MINUTES) / 60;
-    }
-    
-    // On Sundays, any work is considered overtime
-    if (isSunday && workedMinutes > 0) {
-        otHours += workedMinutes / 60;
-    }
-
-
+    // Ensure overTime and lessHours are not negative and are fixed to 2 decimal places
     return {
-        overTime: parseFloat(otHours.toFixed(2)),
-        lessHours: parseFloat(lessHours.toFixed(2))
+        overTime: parseFloat(Math.max(0, otHours).toFixed(2)),
+        lessHours: parseFloat(Math.max(0, lessHours).toFixed(2))
     };
 };
-
 
 export default function App() {
     return (
@@ -456,7 +517,7 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
         let presentDays = 0;
         let absentDays = 0;
         let totalOvertimeHours = 0;
-        let totalLessHours = 0; 
+        let totalLessHours = 0;
 
 
         const year = currentDate.getFullYear();
@@ -464,7 +525,7 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
         const actualDaysInMonth = new Date(year, month + 1, 0).getDate();
 
         // Hourly rate for ALL financial calculations is based on 8.5 hours
-        const STANDARD_HOURS_PER_DAY = 8.5; 
+        const STANDARD_HOURS_PER_DAY = 8.5;
 
         let dynamicOtRate = 0;
         if (baseSalary > 0 && actualDaysInMonth > 0) {
@@ -494,7 +555,7 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
             if (typeof d.overTime === 'number' && d.overTime > 0) {
                 totalOvertimeHours += d.overTime;
             }
-            if (typeof d.lessHours === 'number' && d.lessHours > 0) { 
+            if (typeof d.lessHours === 'number' && d.lessHours > 0) {
                 totalLessHours += d.lessHours;
             }
         });
@@ -504,7 +565,7 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
 
         const dailyRateForDeduction = baseSalary > 0 && actualDaysInMonth > 0 ? baseSalary / actualDaysInMonth : 0;
         const absentDeduction = absentDays * dailyRateForDeduction;
-        
+
         const lessHoursDeduction = totalLessHours * dynamicOtRate;
 
         const totalSalary = baseSalary + otAmount - absentDeduction - lessHoursDeduction;
@@ -513,7 +574,7 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
             present: presentDays,
             absent: absentDays,
             totalOT: totalOvertimeHours,
-            totalLessHours: totalLessHours, 
+            totalLessHours: totalLessHours,
             otAmount: otAmount,
             totalSalary: totalSalary,
             currentOtRate: dynamicOtRate,
