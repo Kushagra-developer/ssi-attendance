@@ -11,11 +11,12 @@ const timeToMinutes = (timeStr) => {
     return hours * 60 + minutes;
 };
 
-// Standard work duration for overtime calculation on weekdays (8.5 hours)
-const STANDARD_WORK_MINUTES_FOR_OVERTIME = 8.5 * 60; // 510 minutes
+// Standard times for LESS HOURS calculation (9:00 to 16:30 = 7.5 hours)
+const STANDARD_WORK_START_MINUTES = timeToMinutes('09:00');
+const STANDARD_WORK_END_MINUTES = timeToMinutes('16:30'); // 4:30 PM
+const STANDARD_WORK_DURATION_MINUTES = STANDARD_WORK_END_MINUTES - STANDARD_WORK_START_MINUTES; // 7.5 hours = 450 minutes
 
-// Standard minutes for LESS HOURS calculation (8 hours)
-const EIGHT_HOUR_WORK_MINUTES = 8 * 60; // 480 minutes
+// The previous 8.5 hours for OT was a misinterpretation, let's stick to the 9:00-16:30 window for regular hours.
 
 const calculateWorkDetails = (inTimeStr, outTimeStr, dateStr) => {
     const dayDate = new Date(dateStr + 'T00:00:00Z');
@@ -38,7 +39,7 @@ const calculateWorkDetails = (inTimeStr, outTimeStr, dateStr) => {
     let lessHours = 0;
     let workedMinutes = outMinutes - inMinutes;
 
-    // Handle cases where outTime is before inTime (e.g., overnight shifts, which this simple model doesn't handle, or user error)
+    // Handle cases where outTime is before inTime (e.g., overnight shifts not handled, or user error)
     if (workedMinutes < 0) {
         workedMinutes = 0; // Treat as no work done for calculation purposes
     }
@@ -51,14 +52,28 @@ const calculateWorkDetails = (inTimeStr, outTimeStr, dateStr) => {
     } else {
         // For weekdays:
 
-        // Calculate Less Hours based on an 8-hour day
-        if (workedMinutes < EIGHT_HOUR_WORK_MINUTES) {
-            lessHours = (EIGHT_HOUR_WORK_MINUTES - workedMinutes) / 60;
+        // Calculate regular minutes worked within the standard 9:00-16:30 window
+        const effectiveInMinutes = Math.max(inMinutes, STANDARD_WORK_START_MINUTES);
+        const effectiveOutMinutes = Math.min(outMinutes, STANDARD_WORK_END_MINUTES);
+
+        let regularMinutesWorked = 0;
+        if (effectiveOutMinutes > effectiveInMinutes) {
+            regularMinutesWorked = effectiveOutMinutes - effectiveInMinutes;
         }
 
-        // Calculate Overtime only if total worked minutes exceed 8.5 hours
-        if (workedMinutes > STANDARD_WORK_MINUTES_FOR_OVERTIME) {
-            otHours = (workedMinutes - STANDARD_WORK_MINUTES_FOR_OVERTIME) / 60;
+        // Calculate Less Hours: If regular minutes worked are less than the standard 7.5 hours
+        if (regularMinutesWorked < STANDARD_WORK_DURATION_MINUTES) {
+            lessHours = (STANDARD_WORK_DURATION_MINUTES - regularMinutesWorked) / 60;
+        }
+
+        // Calculate Overtime:
+        // 1. Time worked before 9:00 AM
+        if (inMinutes < STANDARD_WORK_START_MINUTES) {
+            otHours += (STANDARD_WORK_START_MINUTES - inMinutes) / 60;
+        }
+        // 2. Time worked after 4:30 PM (16:30)
+        if (outMinutes > STANDARD_WORK_END_MINUTES) {
+            otHours += (outMinutes - STANDARD_WORK_END_MINUTES) / 60;
         }
     }
 
@@ -468,13 +483,13 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
         const month = currentDate.getMonth();
         const actualDaysInMonth = new Date(year, month + 1, 0).getDate();
 
-        // Hourly rate for ALL financial calculations is based on 8.5 hours
-        const STANDARD_HOURS_PER_DAY = 8.5;
+        // Hourly rate for ALL financial calculations is based on 7.5 hours (9:00-16:30)
+        const STANDARD_HOURS_PER_DAY_FOR_SALARY = 7.5;
 
         let dynamicOtRate = 0;
         if (baseSalary > 0 && actualDaysInMonth > 0) {
             const dailyRate = baseSalary / actualDaysInMonth;
-            const hourlyRate = dailyRate / STANDARD_HOURS_PER_DAY;
+            const hourlyRate = dailyRate / STANDARD_HOURS_PER_DAY_FOR_SALARY;
             dynamicOtRate = parseFloat(hourlyRate.toFixed(2));
         }
 
@@ -510,7 +525,7 @@ const Summary = ({ data, baseSalary, setBaseSalary, currentDate }) => {
         const dailyRateForDeduction = baseSalary > 0 && actualDaysInMonth > 0 ? baseSalary / actualDaysInMonth : 0;
         const absentDeduction = absentDays * dailyRateForDeduction;
 
-        const lessHoursDeduction = totalLessHours * dynamicOtRate;
+        const lessHoursDeduction = totalLessHours * dynamicOtRate; // Less hours also deducted at this rate
 
         const totalSalary = baseSalary + otAmount - absentDeduction - lessHoursDeduction;
 
